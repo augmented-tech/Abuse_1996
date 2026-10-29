@@ -1,8 +1,13 @@
 Abuse README
 ============
 
-This is a fork of the Abuse SDL2 port from http://github.com/Xenoveritas/abuse,
-which itself is a fork of the Abuse SDL port from http://abuse.zoy.org.
+This is the **2026 Apple Silicon** fork (`augmented-tech/Abuse_1996`) of
+Antonio Radojkovic's SDL2 port (https://github.com/antrad/Abuse_1996),
+which comes from Xenoveritas (http://github.com/Xenoveritas/abuse) and
+the SDL port at http://abuse.zoy.org.
+
+It is a native arm64 Mac build of the 1996 Crack dot Com game. Physics stay
+at 15 Hz. Pain (a planned spiritual successor) is not this repository.
 
 --------
 
@@ -48,7 +53,27 @@ buttons in all those rooms was going to bring down hoards of howlers, but you wo
 
 ## 2. ADDITIONAL FEATURES
 
-These are the changes I made compared to Xenoveritas SDL2 version from 2014:
+### This fork (2026, Apple Silicon)
+
+Compared to antrad's 2016 SDL2 port:
+
+  * Native **arm64** Mac build; SDL2 presents through **Metal** (OpenGL/GLee removed)
+  * **15 Hz physics unchanged**; interpolated drawing so walk and aim look smooth on Retina
+  * Live **FOV**: `fov classic` (320×200, original secrets), `340`, `360`, or `wide`
+  * Save-station **slot grid fully visible** in classic FOV
+  * Console **`c`** grabs typing (keys no longer fire Nick); `get` / `set` / `save` for `config.txt` cvars
+  * **Xbox / DualSense**: move and jump; stick aim `classic` (2016 15 Hz ring) or `modern` (60 Hz latch)
+  * **F8** toggles controller aim without killing walk
+  * **WASD**, Space to fire, 1–7 weapons, plus original mouse aim
+  * **MIDI music** via a SoundFont (place `soundfont.sf2` in `~/Library/Application Support/abuse/user/`, e.g. FluidR3 GM)
+  * F10 fullscreen, F11/F12 scale, vsync
+  * Original PC text hints; Mac tutorial voice WAVs stay off
+
+On macOS, `config.txt` and saves live in `~/Library/Application Support/abuse/user/`.
+
+### antrad 2016 (from Xenoveritas)
+
+These are the changes compared to Xenoveritas SDL2 version from 2014:
 
   * Enabled custom resolutions and enabled lights on high resolutions
   * Re-enabled OpenGL rendering to enable vsync
@@ -65,8 +90,15 @@ These are the changes I made compared to Xenoveritas SDL2 version from 2014:
 
 ## 3. CONFIGURATION
 
-Abuse configuration file has been updated in this version. The file is stored locally in the "user" folder as "config.txt",
-where also the save game files and other original configuration files, like gamma settings, can be found.
+Abuse configuration file has been updated in this version. On macOS it is
+`~/Library/Application Support/abuse/user/config.txt` (saves and gamma live
+there too). Elsewhere it is the local "user" folder as "config.txt".
+
+Useful cvars (console `c`, then `set <name> <value>` and `save`):
+
+- fov - classic | 340 | 360 | wide
+- ctr_stick_aim - classic | modern
+- soundfont - auto, or a path to a .sf2 file
 
 Lines starting with a ';' are comments. Setting an option to '1' turns it on, and '0' turns it off.
 Following settings can be changed via the config file:
@@ -163,7 +195,7 @@ There are several keys in the game that are hardcoded to some function originall
 - F5 - quick save on save consoles (1 or "save0001.spe" is the dedicated quick save slot)
 - F6 - toggle window input grab
 - F7 - toggle mouse scale type
-- F8 - toggle controller use
+- F8 - toggle controller aim (walk/jump stay on)
 - F9 - quick load
 - F10 - toggle window/fullscreen mode
 - F11 - scale window/screen up
@@ -179,15 +211,16 @@ Controller defaults:
 
 ## 5. BUILDING THE PROJECT
 
-Abuse has the following requirements:
+This fork (Apple Silicon):
 
-  * SDL2 2.0.3 or above
-  * SDL_mixer 2.0.0 or above
-  * GLee for OpenGL rendering
-  * OpenCV 2.1 for abuse-tool
+  * CMake 3.16 or above
+  * SDL2 2.0.12 or above (Metal renderer)
+  * SDL_mixer 2.0.0 or above (FluidSynth for HMI/MIDI)
+  * No GLee / OpenGL
 
-Read the BUILDING.md file provided by Xenoveritas to see how to build the projects.
-Do note this version also uses OpenGL(GLee) and OpenCV, so you will need to link to those libraries too.
+    cmake -S . -B build && cmake --build build --target abuse
+
+OpenCV is only needed for abuse-tool. See BUILDING.md for the older SDL/OpenGL notes; they do not apply to this Mac build.
 
 ## 6. NOTES
 
@@ -259,7 +292,9 @@ to Xenoveritas and others who kept it alive for 20 years.
 
 ## 9. FEEDBACK
 
-If you find bugs or have some problems with the game send me an email and I will see what I can do:  
+This 2026 Apple Silicon fork: https://github.com/augmented-tech/Abuse_1996
+
+Antonio's 2016 port:  
 email: antonior.software@gmail.com  
 blog: http://antonior-software.blogspot.hr
 
