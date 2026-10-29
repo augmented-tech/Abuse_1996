@@ -689,6 +689,75 @@ void remap_area(image *screen, int x1, int y1, int x2, int y2, uint8_t *remap)
     screen->Unlock();
 }
 
+void raster_help_legacy(view *v)
+{
+    if(the_game->help_text_frames >= 0)
+    {
+        int color = 2 + Max(0, the_game->help_text_frames - 10);
+
+        ivec2 aa = v->m_aa;
+        ivec2 bb(v->m_bb.x, v->m_aa.y + wm->font()->Size().y + 10);
+
+        remap_area(main_screen, aa.x, aa.y, bb.x, bb.y, white_light + 40 * 256);
+        main_screen->Bar(aa, ivec2(bb.x, aa.y), color);
+        main_screen->Bar(ivec2(aa.x, bb.y), bb, color);
+
+        wm->font()->PutString(main_screen, aa + ivec2(5), the_game->help_text, color);
+        if(color > 30)
+            the_game->help_text_frames = -1;
+    }
+}
+
+void raster_light_legacy(view *v, int32_t xoff, int32_t yoff, image *old_screen, ivec2 old_aa, ivec2 old_bb, int interpolate)
+{
+    if(small_render)
+    {
+        double_light_screen(main_screen, xoff, yoff, white_light, v->ambient, old_screen, old_aa.x, old_aa.y);
+
+        v->m_aa = old_aa;
+        v->m_bb = old_bb;
+        main_screen = old_screen;
+    } else
+    {
+        main_screen->dirt_on();
+        if(interpolate)
+        {
+            static int32_t lx_save[512], ly_save[512];
+            int n = 0;
+            for(light_source *l = first_light_source; l; l = l->next)
+            {
+                int32_t curx = l->x, cury = l->y;
+                if(n < 512)
+                {
+                    lx_save[n] = curx;
+                    ly_save[n] = cury;
+                }
+                if(abs(curx - l->last_x) < 64 && abs(cury - l->last_y) < 64)
+                {
+                    l->x = ar_lerp_i(l->last_x, curx, settings.render_interp);
+                    l->y = ar_lerp_i(l->last_y, cury, settings.render_interp);
+                    l->calc_range();
+                }
+                n++;
+            }
+            light_screen(main_screen, xoff, yoff, white_light, v->ambient);
+            n = 0;
+            for(light_source *l = first_light_source; l; l = l->next)
+            {
+                if(n < 512)
+                {
+                    l->x = lx_save[n];
+                    l->y = ly_save[n];
+                    l->calc_range();
+                }
+                n++;
+            }
+        }
+        else
+            light_screen(main_screen, xoff, yoff, white_light, v->ambient);
+    }
+}
+
 static void post_render()
 {
   if(DEFINEDP(l_post_render->GetFunction()))
@@ -1049,24 +1118,7 @@ void Game::draw_map(view *v, int interpolate)
 //      server_check();
 
     if(dev & DRAW_HELP_LAYER)
-    {
-      if(help_text_frames >= 0)
-      {
-    int color = 2 + Max(0, help_text_frames - 10);
-
-    ivec2 aa = v->m_aa;
-    ivec2 bb(v->m_bb.x, v->m_aa.y + wm->font()->Size().y + 10);
-
-    remap_area(main_screen, aa.x, aa.y, bb.x, bb.y, white_light + 40 * 256);
-    main_screen->Bar(aa, ivec2(bb.x, aa.y), color);
-    main_screen->Bar(ivec2(aa.x, bb.y), bb, color);
-
-    wm->font()->PutString(main_screen, aa + ivec2(5), help_text, color);
-    if(color > 30)
-        help_text_frames = -1;
-
-      }
-    }
+        raster_help_legacy(v);
 
     if(dev_cont) dev_cont->dev_draw(v);
 
@@ -1074,58 +1126,8 @@ void Game::draw_map(view *v, int interpolate)
     //if(cache.in_use()) main_screen->PutImage(cache.img(vmm_image), ivec2(v->m_aa.x, v->m_bb.y - cache.img(vmm_image)->Size().y+1));
 
     if(dev & DRAW_LIGHTS)
-    {
-      if(small_render)
-      {
-    double_light_screen(main_screen, xoff, yoff, white_light, v->ambient, old_screen, old_aa.x, old_aa.y);
-
-    v->m_aa = old_aa;
-    v->m_bb = old_bb;
-    main_screen = old_screen;
-      } else
-      {
-    main_screen->dirt_on();
-	if(interpolate)
-	{
-		static int32_t lx_save[512], ly_save[512];
-		int n = 0;
-		for(light_source *l = first_light_source; l; l = l->next)
-		{
-			int32_t curx = l->x, cury = l->y;
-			if(n < 512)
-			{
-				lx_save[n] = curx;
-				ly_save[n] = cury;
-			}
-			if(abs(curx - l->last_x) < 64 && abs(cury - l->last_y) < 64)
-			{
-				l->x = ar_lerp_i(l->last_x, curx, settings.render_interp);
-				l->y = ar_lerp_i(l->last_y, cury, settings.render_interp);
-				l->calc_range();
-			}
-			n++;
-		}
-		light_screen(main_screen, xoff, yoff, white_light, v->ambient);
-		n = 0;
-		for(light_source *l = first_light_source; l; l = l->next)
-		{
-			if(n < 512)
-			{
-				l->x = lx_save[n];
-				l->y = ly_save[n];
-				l->calc_range();
-			}
-			n++;
-		}
-	}
-	else
-		light_screen(main_screen, xoff, yoff, white_light, v->ambient);
-    /*if(xres * yres <= 64000)
-          light_screen(main_screen, xoff, yoff, white_light, v->ambient);
-    else light_screen(main_screen, xoff, yoff, white_light, 63);            // no lighting for hi - rez*/
-      }
-
-    } else
+        raster_light_legacy(v, xoff, yoff, old_screen, old_aa, old_bb, interpolate);
+    else
       main_screen->dirt_on();
 
 

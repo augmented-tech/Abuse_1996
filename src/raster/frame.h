@@ -40,4 +40,7 @@ void raster_execute_legacy(RasterFrame const &f);
 uint32_t raster_crc_rect(image *im, int x, int y, int x2, int y2);
 int raster_selftest();
 
+void raster_light_legacy(view *v, int32_t xoff, int32_t yoff, image *old_screen, ivec2 old_aa, ivec2 old_bb, int interpolate);
+void raster_help_legacy(view *v);
+
 #endif

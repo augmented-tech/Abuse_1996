@@ -97,6 +97,7 @@ public :
 	JCFont *save_game_font;	//AR
 	JCFont *ar_small_font;	//AR
 	JCFont *ar_big_font;	//AR
+	friend void raster_help_legacy(view *v);
 
   int key_down(int key) { return keymap[key/8]&(1<<(key%8)); }
   //AR x=1 -> key pressed, x=0 key released
