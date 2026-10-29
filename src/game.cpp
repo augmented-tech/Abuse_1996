@@ -111,9 +111,10 @@ extern uint8_t chatting_enabled;
 
 Settings settings;
 
+#include "raster/frame.h"
+
 // Enable TCP/IP driver
 #if HAVE_NETWORK
-#include "raster/frame.h"
 #include "tcpip.h"
 tcpip_protocol tcpip;
 #endif
