@@ -81,8 +81,10 @@ public:
   int32_t y_center();
   int32_t xoff();                            // top left and right corner of the screen
   int32_t interpolated_xoff();
+  float interpolated_xoff_f();
   int32_t yoff();
   int32_t interpolated_yoff();
+  float interpolated_yoff_f();
   int drawable();                        // network viewables are not drawable
   int local_player();                    //  just in case I ever need non-viewable local players.
 
@@ -135,6 +137,7 @@ extern view *player_list;
 void set_local_players(int total);
 int total_local_players();
 void recalc_local_view_space();
+void apply_game_fov();
 
 void process_packet_commands(uint8_t *pk, int size);
 

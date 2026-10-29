@@ -23,16 +23,6 @@
 #   include "config.h"
 #endif
 
-//AR OpenGL - Windows might complain if we include OpenGL before windows.h
-#ifdef WIN32
-#include <windows.h>
-#endif
-#include "Glee.h"
-//Abuse linker->input:
-//	- opengl32.lib
-//	- GLee.lib
-//
-
 #include "SDL.h"
 
 #include "common.h"
@@ -48,6 +38,8 @@
 //then it is rendered to screen using update_window_done() where the surface is first copied to a OGL texture
 
 SDL_Window *window = NULL;
+SDL_Renderer *renderer = NULL;
+SDL_Texture *texture = NULL;
 SDL_Surface *surface = NULL;
 SDL_Surface *screen = NULL;
 image *main_screen = NULL;
@@ -57,18 +49,119 @@ int xres, yres;
 
 extern palette *lastl;
 extern Settings settings;
+int g_allow_present = 1;
+float g_present_shift_x = 0;
+float g_present_shift_y = 0;
+int g_hud_split = 0;
+int g_fov_present = 0;
 
 void calculate_mouse_scaling();
 
-//AR OpenGL
-SDL_GLContext glcontext;
-GLuint ar_texture;
+void present_src_size(int &pw, int &ph)
+{
+    pw = xres;
+    ph = yres;
+    if(g_fov_present)
+    {
+        pw = 320;
+        ph = 200;
+    }
+    if(pw < 1) pw = 1;
+    if(ph < 1) ph = 1;
+}
+
+void video_set_linear_filter(bool on)
+{
+    settings.linear_filter = on;
+#if SDL_VERSION_ATLEAST(2,0,12)
+    if(texture)
+        SDL_SetTextureScaleMode(texture, on ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
+#endif
+}
+
+void video_set_grab(bool on)
+{
+    settings.grab_input = on;
+    if(window)
+        SDL_SetWindowGrab(window, on ? SDL_TRUE : SDL_FALSE);
+}
+
 SDL_DisplayMode desktop;
 int window_w = 320, window_h = 200;
 bool ar_fullscreen = false;
 int ogl_scale = 1;
 int ogl_w = 320, ogl_h = 200;
-//
+
+static void compute_present_rect(SDL_Rect *dest, int *out_w, int *out_h)
+{
+    int ow = window_w, oh = window_h;
+    if(renderer)
+        SDL_GetRendererOutputSize(renderer, &ow, &oh);
+    if(ow < 1) ow = 1;
+    if(oh < 1) oh = 1;
+
+    int pw, ph;
+    present_src_size(pw, ph);
+    int iscale = ow / pw;
+    int iscale_y = oh / ph;
+    if(iscale_y < iscale)
+        iscale = iscale_y;
+    if(iscale < 1)
+        iscale = 1;
+
+    dest->w = pw * iscale;
+    dest->h = ph * iscale;
+    dest->x = (ow - dest->w) / 2;
+    dest->y = (oh - dest->h) / 2;
+    if(out_w) *out_w = ow;
+    if(out_h) *out_h = oh;
+}
+
+void window_to_game(int wx, int wy, int &gx, int &gy)
+{
+    SDL_Rect dest;
+    int ow, oh;
+    compute_present_rect(&dest, &ow, &oh);
+    if(window_w < 1) window_w = 1;
+    if(window_h < 1) window_h = 1;
+    if(dest.w < 1) dest.w = 1;
+    if(dest.h < 1) dest.h = 1;
+
+    float ox = wx * ((float)ow / (float)window_w);
+    float oy = wy * ((float)oh / (float)window_h);
+    int pw, ph;
+    present_src_size(pw, ph);
+    gx = (int)((ox - dest.x) * (float)pw / (float)dest.w);
+    gy = (int)((oy - dest.y) * (float)ph / (float)dest.h);
+    if(gx < 0) gx = 0;
+    if(gy < 0) gy = 0;
+    if(gx > pw - 1) gx = pw - 1;
+    if(gy > ph - 1) gy = ph - 1;
+}
+
+void game_to_window(int gx, int gy, int &wx, int &wy)
+{
+    SDL_Rect dest;
+    int ow, oh;
+    compute_present_rect(&dest, &ow, &oh);
+    if(window_w < 1) window_w = 1;
+    if(window_h < 1) window_h = 1;
+    float dpi_x = (float)ow / (float)window_w;
+    float dpi_y = (float)oh / (float)window_h;
+    int pw, ph;
+    present_src_size(pw, ph);
+    wx = (int)((dest.x + gx * (float)dest.w / (float)pw) / dpi_x);
+    wy = (int)((dest.y + gy * (float)dest.h / (float)ph) / dpi_y);
+}
+
+static void apply_renderer_scale()
+{
+    if(!renderer)
+        return;
+
+    SDL_RenderSetLogicalSize(renderer, 0, 0);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, settings.linear_filter ? "linear" : "nearest");
+}
 
 void video_change_settings(int scale_add, bool toggle_fullscreen);
 
@@ -102,10 +195,15 @@ void set_mode(int argc, char **argv)
 	// FIXME: Set the icon for this window.  Looks nice on taskbars etc.
     //SDL_WM_SetIcon(SDL_LoadBMP("abuse.bmp"), NULL);
 
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+    SDL_SetHint(SDL_HINT_RENDER_VSYNC, settings.vsync ? "1" : "0");
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, settings.linear_filter ? "linear" : "nearest");
+    SDL_SetHint(SDL_HINT_VIDEO_HIGHDPI_DISABLED, "0");
+
     window = SDL_CreateWindow("Abuse",
-        SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,
+        SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,
         window_w, window_h,
-        window_type|SDL_WINDOW_OPENGL);
+        window_type|SDL_WINDOW_ALLOW_HIGHDPI|SDL_WINDOW_RESIZABLE);
 
     if(!window)
     {
@@ -113,37 +211,29 @@ void set_mode(int argc, char **argv)
         exit(1);
     }
 
-	//AR OpenGL
-	glcontext = SDL_GL_CreateContext(window);
+    Uint32 renderer_flags = SDL_RENDERER_ACCELERATED;
+    if(settings.vsync)
+        renderer_flags |= SDL_RENDERER_PRESENTVSYNC;
 
-	if(settings.vsync) SDL_GL_SetSwapInterval(1);
+    renderer = SDL_CreateRenderer(window, -1, renderer_flags);
+    if(!renderer)
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+    if(!renderer)
+    {
+        show_startup_error("Video : Unable to create renderer : %s", SDL_GetError());
+        exit(1);
+    }
 
-	glPushAttrib(GL_ENABLE_BIT);
-	glDisable(GL_DEPTH_TEST);
-	glDisable(GL_CULL_FACE);
+    SDL_RendererInfo rendererInfo;
+    SDL_GetRendererInfo(renderer, &rendererInfo);
+    int out_w = window_w, out_h = window_h;
+    SDL_GetRendererOutputSize(renderer, &out_w, &out_h);
+    printf("Video : renderer=%s flags=0x%x vsync=%d %dx%d scale=%d window=%dx%d drawable=%dx%d\n",
+        rendererInfo.name, rendererInfo.flags, settings.vsync ? 1 : 0,
+        xres, yres, scale, window_w, window_h, out_w, out_h);
 
-	glViewport(0,0,window_w,window_h);
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	glOrtho(0,window_w,window_h,0,-1,1);
+    apply_renderer_scale();
 
-	glEnable(GL_TEXTURE_2D);
-	glGenTextures(1,&ar_texture);
-	glBindTexture(GL_TEXTURE_2D,ar_texture);
-	if(settings.linear_filter==1)
-	{
-		glTexParameterf(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
-	}
-	else
-	{
-		glTexParameterf(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
-		glTexParameterf(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
-	}
-	glTexParameterf(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
-	glTexParameterf(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
-
-	//Create our surface for the OpenGL texture
 	screen = SDL_CreateRGBSurface(SDL_SWSURFACE, xres , yres , 32,
 #if SDL_BYTEORDER == SDL_LIL_ENDIAN
                 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000);
@@ -155,7 +245,19 @@ void set_mode(int argc, char **argv)
         show_startup_error("Video : Unable to create 32-bit surface: %s", SDL_GetError());
         exit(1);
     }
-	//
+
+    texture = SDL_CreateTexture(renderer,
+        SDL_PIXELFORMAT_RGBA32,
+        SDL_TEXTUREACCESS_STREAMING,
+        xres, yres);
+    if(texture == NULL)
+    {
+        show_startup_error("Video : Unable to create texture: %s", SDL_GetError());
+        exit(1);
+    }
+#if SDL_VERSION_ATLEAST(2,0,12)
+    SDL_SetTextureScaleMode(texture, settings.linear_filter ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
+#endif
 	
 	// Create our 8-bit surface
     surface = SDL_CreateRGBSurface(0, xres, yres, 8, 0, 0, 0, 0);
@@ -281,15 +383,9 @@ void video_change_settings(int scale_add, bool toggle_fullscreen)
 		}
 	}
 
-	//update size, position and OGL
 	SDL_GetWindowSize(window,&window_w,&window_h);
 	SDL_SetWindowPosition(window,desktop.w/2-window_w/2,desktop.h/2-window_h/2);
-
-	glViewport(0,0,window_w,window_h);
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	glOrtho(0,window_w,window_h,0,-1,1);
-	//
+    apply_renderer_scale();
 
     calculate_mouse_scaling();
 }
@@ -335,9 +431,14 @@ void close_graphics()
     if(lastl) delete lastl;
     lastl = NULL;
 
-    // Free our 8-bit surface    
 	if(surface) SDL_FreeSurface(surface);
     if(screen) SDL_FreeSurface(screen);
+    if(texture) SDL_DestroyTexture(texture);
+    if(renderer) SDL_DestroyRenderer(renderer);
+    if(window) SDL_DestroyWindow(window);
+    texture = NULL;
+    renderer = NULL;
+    window = NULL;
 
     delete main_screen;
 }
@@ -451,8 +552,10 @@ void palette::load()
     }
     SDL_SetPaletteColors(surface->format->palette, colors, 0, ncolors);
 
-    // Now redraw the surface
-    update_window_done();
+    // Applying a palette mid-frame (damage/heal flashes) used to SDL_RenderPresent
+    // a half-drawn, unlit buffer and block on vsync. The real present is at flush.
+    if(g_allow_present)
+        update_window_done();
 }
 
 //
@@ -467,35 +570,57 @@ void palette::load_nice()
 
 void update_window_done()
 {
-	//AR convert to match the OpenGL texture
 	SDL_BlitSurface(surface, NULL, screen, NULL);
+    SDL_UpdateTexture(texture, NULL, screen->pixels, screen->pitch);
 
-	//clear the backbuffer
-	glClearColor(0,0,0,0);
-	glClear(GL_COLOR_BUFFER_BIT);
+    if(window)
+        SDL_GetWindowSize(window, &window_w, &window_h);
 
-	//map the surface to the texture in video memory
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, screen->w, screen->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, screen->pixels);
-	
-	glBegin(GL_POLYGON);
-	if(ar_fullscreen)
-	{
-		//expand from center so we can scale
-		glTexCoord2f(0,0); glVertex2i(desktop.w/2 - ogl_w/2, desktop.h/2 - ogl_h/2);
-		glTexCoord2f(1,0); glVertex2i(desktop.w/2 + ogl_w/2, desktop.h/2 - ogl_h/2);
-		glTexCoord2f(1,1); glVertex2i(desktop.w/2 + ogl_w/2, desktop.h/2 + ogl_h/2);
-		glTexCoord2f(0,1); glVertex2i(desktop.w/2 - ogl_w/2, desktop.h/2 + ogl_h/2);
-	}
-	else
-	{
-		//match window size
-		glTexCoord2f(0,0); glVertex2i(0, 0);
-		glTexCoord2f(1,0); glVertex2i(window_w, 0);
-		glTexCoord2f(1,1); glVertex2i(window_w, window_h);
-		glTexCoord2f(0,1); glVertex2i(0, window_h);	
-	}
-	glEnd();
+    SDL_Rect dest;
+    int ow = 0, oh = 0;
+    compute_present_rect(&dest, &ow, &oh);
+    int pw, ph;
+    present_src_size(pw, ph);
+    int iscale = pw > 0 ? dest.w / pw : 1;
+    if(iscale < 1) iscale = 1;
 
-	SDL_GL_SwapWindow(window);
-	//
+    bool subpixel = (g_present_shift_x != 0.f || g_present_shift_y != 0.f)
+        && g_hud_split > 0 && g_hud_split < ph;
+
+    if(subpixel || dest.x > 0 || dest.y > 0 || dest.w < ow || dest.h < oh)
+    {
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        SDL_RenderClear(renderer);
+    }
+
+#if SDL_VERSION_ATLEAST(2,0,10)
+    if(subpixel)
+    {
+        SDL_Rect play_clip = dest;
+        play_clip.h = g_hud_split * iscale;
+
+        SDL_Rect src_w = { 0, 0, pw, g_hud_split };
+        SDL_FRect dst_w;
+        dst_w.x = (float)dest.x - g_present_shift_x * (float)iscale;
+        dst_w.y = (float)dest.y - g_present_shift_y * (float)iscale;
+        dst_w.w = (float)dest.w;
+        dst_w.h = (float)(g_hud_split * iscale);
+
+        SDL_RenderSetClipRect(renderer, &play_clip);
+        SDL_RenderCopyF(renderer, texture, &src_w, &dst_w);
+        SDL_RenderSetClipRect(renderer, NULL);
+
+        SDL_Rect src_h = { 0, g_hud_split, pw, ph - g_hud_split };
+        SDL_Rect dst_h = { dest.x, dest.y + g_hud_split * iscale,
+            dest.w, (ph - g_hud_split) * iscale };
+        SDL_RenderCopy(renderer, texture, &src_h, &dst_h);
+    }
+    else
+#endif
+    {
+        SDL_Rect src = { 0, 0, pw, ph };
+        SDL_RenderCopy(renderer, texture, (pw == xres && ph == yres) ? NULL : &src, &dest);
+    }
+
+    SDL_RenderPresent(renderer);
 }

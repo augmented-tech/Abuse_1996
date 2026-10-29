@@ -23,6 +23,8 @@
 int sound_init(int argc, char **argv);
 void sound_uninit();
 void print_sound_options(); // print the options avaible for sound
+const char *sound_current_font();
+bool sound_set_font(char const *path);
 
 class sound_effect
 {

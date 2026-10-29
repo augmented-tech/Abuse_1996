@@ -25,7 +25,9 @@ public:
 	short	yres;	
 	short	scale;			//windows scale
 	bool	linear_filter;	//"antialias"
-	int		hires;			//enable hires screens and icons	
+	int		hires;			//enable hires screens and icons
+	float	render_interp;	// 0..1 blend between last and current physics tick
+	int		classic_fov;	// 1 = original 320x200 camera, integer-scaled to the window
 
 	//sound
 	bool	mono;
@@ -33,6 +35,7 @@ public:
 	bool	no_music;	
 	int		volume_sound;	//0-127
 	int		volume_music;	//0-127
+	std::string soundfont;		// optional .sf2 path; empty = auto-search
 
 	//random
 	bool	local_save;
@@ -48,6 +51,7 @@ public:
 	float	bullet_time_add;	//percentage
 
 	std::string quick_load;			//quick load
+	std::string config_path;		// last config.txt path, for save
 	bool player_touching_console;	//only allow quicksave if player is touching the console
 
 	//cheats
@@ -58,12 +62,14 @@ public:
 	int		left_2, right_2, up_2, down_2;
     int		b1;	//special
 	int		b2;	//fire
+	int		b2_2;	//alternate fire (F still works)
 	int		b3;	//weapon prev
 	int		b4;	//weapon next
 	int		bt;	//bullet time
 
 	//controller settings
 	bool	ctr_aim;								//enable
+	int		ctr_stick_aim;							// 0 = 2016 15 Hz ring (classic), 1 = 60 Hz angle latch (modern)
 	int		ctr_aim_correctx;						//for some reason game adds black bars on widescreen resolutions and it messes up crosshair position
 	int		ctr_cd;									//crosshair distance from player
 	int		ctr_rst_s;								//right stick sensitivity
@@ -71,6 +77,15 @@ public:
 	//
 	float	ctr_aim_x, ctr_aim_y;					//state of right stick
 	float	ctr_mouse_x, ctr_mouse_y;				//use left stick to move mouse...gave up
+	bool	ctr_aim_latched;						// modern stick aim: keep last angle after release
+	float	ctr_aim_angle;							// radians, DualShock-style right-stick heading
+
+	void reset_stick_aim()
+	{
+		ctr_aim_latched = false;
+		ctr_aim_x = 0;
+		ctr_aim_y = 0;
+	}
 	
 	//controller buttons
 	std::string ctr_a, ctr_b, ctr_x, ctr_y;
@@ -82,11 +97,38 @@ public:
 
 	Settings();
 
+	bool stick_deflected() const
+	{
+		return ctr_aim_x > ctr_rst_dz || ctr_aim_x < -ctr_rst_dz ||
+			 ctr_aim_y > ctr_rst_dz || ctr_aim_y < -ctr_rst_dz;
+	}
+
+	// Right stick is actually steering the crosshair (not just "aim enabled").
+	bool stick_aiming() const
+	{
+		return ctr_aim && stick_deflected();
+	}
+
+	// Mouse freeze: modern only after a real flick (latch), classic while stick deflected.
+	bool stick_aim_active() const
+	{
+		if(!ctr_aim)
+			return false;
+		if(ctr_stick_aim == 1)
+			return ctr_aim_latched;
+		return stick_deflected();
+	}
+
 	bool CreateConfigFile	(std::string file_path);
+	bool WriteConfigFile	();
 	
 	bool ControllerButton	(std::string c, std::string b);
 	bool ReadConfigFile		(std::string folder);
+	bool GetCvar			(std::string key, std::string &value);
+	bool SetCvar			(std::string key, std::string value, std::string &reply);
 
 };
+
+void release_controller_move_keys();
 
 #endif // _SETUP_H_

@@ -338,6 +338,7 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/music)
         music/abuse00.hmi music/abuse01.hmi music/abuse02.hmi music/abuse03.hmi
         music/abuse04.hmi music/abuse06.hmi music/abuse08.hmi music/abuse09.hmi
         music/abuse11.hmi music/abuse13.hmi music/abuse15.hmi music/abuse17.hmi
+        music/VintageDreamsWaves-v2.sf2
     DESTINATION ${ASSETDIR}/music)
 else()
     message(WARNING "Non-free music not found, it will not be included.")

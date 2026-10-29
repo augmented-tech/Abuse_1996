@@ -36,7 +36,7 @@ int morph_detail = MEDIUM_DETAIL;
 
 struct player_keys
 {
-    int joy, left, right, up, down, b1, b2, b3, b4;
+    int joy, left, right, up, down, b1, b2, b2_2, b3, b4;
     // Alternate keys to allow two key bindings for the same action
     int left_2, right_2, up_2, down_2;
 
@@ -158,6 +158,7 @@ void get_key_bindings()
         key_map[i].b4 = get_key_binding( "b4", i + 1 );
         key_map[i].b3 = get_key_binding( "b3", i + 1 );
         key_map[i].b2 = get_key_binding( "b2", i + 1 );
+        key_map[i].b2_2 = get_key_binding( "b2_2", i + 1 );
         key_map[i].b1 = get_key_binding( "b1", i + 1 );
 		key_map[i].bt = get_key_binding( "bt", i + 1 );
 #else
@@ -219,7 +220,8 @@ void get_movement(int player, int &x, int &y, int &b1, int &b2, int &b3, int &b4
             else
                 b1 = 0;
 
-            if( is_pressed( key_map[player].b2 ) )
+            if( is_pressed( key_map[player].b2 ) ||
+                    is_pressed( key_map[player].b2_2 ) )
                 b2 = 1;
             else
                 b2 = 0;

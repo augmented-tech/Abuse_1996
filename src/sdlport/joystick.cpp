@@ -32,20 +32,35 @@
 
 int joy_init( int argc, char **argv )
 {
+    (void)argc;
+    (void)argv;
+    SDL_GameControllerEventState(SDL_ENABLE);
+    SDL_JoystickEventState(SDL_ENABLE);
+
     int joysticks = SDL_NumJoysticks();
     printf("%d joysticks on system\n", joysticks);
+    int opened = 0;
     for (int i = 0; i < joysticks; i++) {
         if (SDL_IsGameController(i))
         {
-            if (SDL_GameControllerOpen(i) == NULL)
+            SDL_GameController *pad = SDL_GameControllerOpen(i);
+            if (pad == NULL)
             {
                 const char* error = SDL_GetError();
                 printf("Warning : Unable to open game controller %s: %s\n", SDL_JoystickNameForIndex(i), error);
             }
+            else
+            {
+                printf("  - controller %d : %s\n", i, SDL_GameControllerName(pad));
+                opened++;
+            }
         }
-        printf("  - joystick %d (%s) : %s\n", i, SDL_IsGameController(i) ? "controller" : " joystick ", SDL_JoystickNameForIndex(i));
+        else
+            printf("  - joystick %d : %s\n", i, SDL_JoystickNameForIndex(i));
     }
-    return joysticks > 0;
+    if (!opened)
+        printf("Controller : none yet (plug one in anytime, analog aim is F8)\n");
+    return opened > 0;
 }
 
 void joy_status( int &b1, int &b2, int &b3, int &xv, int &yv )

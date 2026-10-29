@@ -155,6 +155,7 @@ light_source::light_source(char Type, int32_t X, int32_t Y, int32_t Inner_radius
 {
   type=Type;
   x=X; y=Y;
+  last_x=X; last_y=Y;
   inner_radius=Inner_radius;
   outer_radius=Outer_radius;
   next=Next;
@@ -776,6 +777,51 @@ void light_screen(image *sc, int32_t screenx, int32_t screeny, uint8_t *light_lo
   if (ambient==63) return ;
   ivec2 caa, cbb;
   sc->GetClip(caa, cbb);
+
+  // Interpolated camera used to re-phase the original 8×4 lighting grid every
+  // present, which flickered. Sample per pixel while interpolating; M4 can
+  // afford 640×400 and the patches stay glued to the world.
+  if (interpolate_draw)
+  {
+    int width = cbb.x - caa.x;
+    int height = cbb.y - caa.y;
+    if (width > 0 && height > 0)
+    {
+      light_patch *first = make_patch_list(width, height, screenx, screeny);
+      uint8_t *remap_line = (uint8_t *)malloc(width);
+      main_screen->Lock();
+      int scr_w = main_screen->Size().x;
+      uint8_t *screen_line = main_screen->scan_line(caa.y) + caa.x;
+      light_patch *rowf = first;
+      for (int y = 0; y < height; y++)
+      {
+        while (rowf->next && rowf->y2 < y)
+          rowf = rowf->next;
+        light_patch *lp = rowf;
+        int wy = y + screeny;
+        for (int x = 0; x < width; x++)
+        {
+          for (; lp && (lp->y1 > y || lp->y2 < y || lp->x1 > x || lp->x2 < x); lp = lp->next)
+            ;
+          if (!lp)
+            lp = rowf;
+          remap_line[x] = (uint8_t)calc_light_value(lp, x + screenx, wy);
+        }
+        uint8_t *addr = screen_line;
+        uint8_t *rem = remap_line;
+        for (int x = 0; x < width; x++, addr++, rem++)
+        {
+          uint8_t *off = light_lookup + (((int32_t)*rem) << 8);
+          *addr = off[*addr];
+        }
+        screen_line += scr_w;
+      }
+      main_screen->Unlock();
+      delete_patch_list(first);
+      free(remap_line);
+    }
+    return;
+  }
 
   light_patch *first = make_patch_list(cbb.x - caa.x, cbb.y - caa.y, screenx, screeny);
 

@@ -27,6 +27,8 @@
 # include <Windows.h>
 #endif
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
 
 #include "SDL.h"
 #include "SDL_mixer.h"
@@ -39,6 +41,80 @@
 extern Settings settings;
 static int sound_enabled = 0;
 static SDL_AudioSpec audioObtained;
+static char g_soundfont[1024];
+
+static bool sound_font_exists(char const *path)
+{
+	if(!path || !path[0])
+		return false;
+	FILE *sf = fopen(path, "rb");
+	if(!sf)
+		return false;
+	fclose(sf);
+	return true;
+}
+
+static bool sound_use_font(char const *path)
+{
+	if(!sound_font_exists(path))
+		return false;
+	snprintf(g_soundfont, sizeof(g_soundfont), "%s", path);
+	Mix_SetSoundFonts(g_soundfont);
+	printf("Sound: soundfont %s\n", g_soundfont);
+	return true;
+}
+
+const char *sound_current_font()
+{
+	return g_soundfont;
+}
+
+bool sound_set_font(char const *path)
+{
+	if(sound_use_font(path))
+		return true;
+	if(path && path[0] && path[0] != '/')
+	{
+		char full[1024];
+		snprintf(full, sizeof(full), "%s%s", get_save_filename_prefix(), path);
+		if(sound_use_font(full))
+			return true;
+	}
+	return false;
+}
+
+static void sound_pick_font()
+{
+	g_soundfont[0] = 0;
+	if(!settings.soundfont.empty() && sound_set_font(settings.soundfont.c_str()))
+		return;
+	const char *envfont = getenv("SDL_SOUNDFONTS");
+	if(envfont && envfont[0])
+	{
+		char tmp[1024];
+		snprintf(tmp, sizeof(tmp), "%s", envfont);
+		char *save = NULL;
+		for(char *tok = strtok(tmp, ":;"); tok; tok = strtok(NULL, ":;"))
+		{
+			if(sound_use_font(tok))
+				return;
+		}
+		(void)save;
+	}
+	char p[1024];
+	snprintf(p, sizeof(p), "%ssoundfont.sf2", get_save_filename_prefix());
+	if(sound_use_font(p))
+		return;
+	snprintf(p, sizeof(p), "%s../soundfont.sf2", get_save_filename_prefix());
+	if(sound_use_font(p))
+		return;
+	snprintf(p, sizeof(p), "%smusic/VintageDreamsWaves-v2.sf2", get_filename_prefix());
+	if(sound_use_font(p))
+		return;
+	if(sound_use_font("/opt/homebrew/share/soundfonts/default.sf2"))
+		return;
+	printf("Sound: WARNING - no MIDI soundfont, HMI music will be silent\n");
+}
 
 //
 // sound_init()
@@ -77,6 +153,7 @@ int sound_init( int argc, char **argv )
     }
 
     Mix_AllocateChannels(50);
+    sound_pick_font();
 
     int tempChannels = 0;
     Mix_QuerySpec(&audioObtained.freq, &audioObtained.format, &tempChannels);

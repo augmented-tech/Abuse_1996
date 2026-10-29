@@ -32,6 +32,7 @@ class light_source
 
   int32_t x1,y1,x2,y2;
   char known;
+  int32_t last_x, last_y;
   light_source *next;
 
   void calc_range();

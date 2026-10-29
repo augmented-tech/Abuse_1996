@@ -23,6 +23,20 @@
 #include "objects.h"
 #include "game.h"
 #include "clisp.h"
+#include "sdlport/setup.h"
+extern Settings settings;
+
+static void sbar_layout(int sb_w, int sb_h, int &sx, int &sy)
+{
+  int bar_w = xres, bar_base = yres;
+  if(g_fov_present || (settings.classic_fov && settings.in_game))
+  {
+    bar_w = 320;
+    bar_base = 200;
+  }
+  sx = bar_w / 2 - sb_w / 2;
+  sy = bar_base - sb_h;
+}
 
 status_bar sbar;
 
@@ -112,7 +126,8 @@ void status_bar::redraw(image *screen)
     sb_h=(small_render ? sb->Size().y*2 : sb->Size().y);
 
     // status bar x & y position
-    int sx=xres/2-sb_w/2,sy=yres-sb_h;
+    int sx, sy;
+    sbar_layout(sb_w, sb_h, sx, sy);
 
     // weapon x offset, and x add increment
     int wx=small_render ? 80 : 40,wa=small_render ? 34*2 : 34;
@@ -188,10 +203,12 @@ void status_bar::area(int &x1, int &y1, int &x2, int &y2)
 
   if (small_render) { sb_w*=2; sb_h*=2; }
 
-  x1=xres/2-sb_w/2;
-  x2=xres/2+sb_w/2;
-  y1=yres-sb_h;
-  y2=yres;
+  int sx, sy;
+  sbar_layout(sb_w, sb_h, sx, sy);
+  x1=sx;
+  x2=sx+sb_w;
+  y1=sy;
+  y2=sy+sb_h;
 }
 
 

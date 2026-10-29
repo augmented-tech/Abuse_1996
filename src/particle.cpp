@@ -20,6 +20,8 @@
 #include "cache.h"
 #include "jrand.h"
 
+extern int32_t current_vxadd, current_vyadd;
+
 
 static int total_pseqs=0;
 static part_sequence **pseqs=NULL;
@@ -164,7 +166,8 @@ void draw_panims(view *v)
 {
   for (part_animation *p=first_anim; p; p=p->next)
   {
-    cache.part(p->seq->frames[p->frame])->draw(main_screen,p->x-v->xoff()+v->m_aa.x,p->y-v->yoff()+v->m_aa.y,p->dir);
+    cache.part(p->seq->frames[p->frame])->draw(main_screen,
+        p->x - current_vxadd, p->y - current_vyadd, p->dir);
   }
 }
 

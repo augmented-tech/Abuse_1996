@@ -73,7 +73,17 @@
 //AR
 #include "sdlport/setup.h"
 #include <SDL_timer.h>
+#include <cmath>
 //
+
+int g_logic_tick = 0;
+
+static inline int32_t ar_lerp_i(int32_t a, int32_t b, float t)
+{
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    return a + (int32_t)lroundf((float)(b - a) * t);
+}
 
 #define SHIFT_RIGHT_DEFAULT 0
 #define SHIFT_DOWN_DEFAULT 30
@@ -756,8 +766,15 @@ void Game::draw_map(view *v, int interpolate)
   int32_t xoff, yoff;
   if(interpolate)
   {
-    xoff = v->interpolated_xoff();
-    yoff = v->interpolated_yoff();
+    float cx = v->interpolated_xoff_f();
+    float cy = v->interpolated_yoff_f();
+    xoff = (int32_t)floorf(cx);
+    yoff = (int32_t)floorf(cy);
+    g_present_shift_x = cx - (float)xoff;
+    g_present_shift_y = cy - (float)yoff;
+    g_hud_split = v->m_bb.y + 1;
+    if(g_hud_split < 0) g_hud_split = 0;
+    if(g_hud_split > yres) g_hud_split = yres;
   } else
   {
     xoff = v->xoff();
@@ -1047,7 +1064,6 @@ void Game::draw_map(view *v, int interpolate)
     wm->font()->PutString(main_screen, aa + ivec2(5), help_text, color);
     if(color > 30)
         help_text_frames = -1;
-    else help_text_frames++;
 
       }
     }
@@ -1069,8 +1085,41 @@ void Game::draw_map(view *v, int interpolate)
       } else
       {
     main_screen->dirt_on();
-	//AR enable light in higher resolutions
-	light_screen(main_screen, xoff, yoff, white_light, v->ambient);
+	if(interpolate)
+	{
+		static int32_t lx_save[512], ly_save[512];
+		int n = 0;
+		for(light_source *l = first_light_source; l; l = l->next)
+		{
+			int32_t curx = l->x, cury = l->y;
+			if(n < 512)
+			{
+				lx_save[n] = curx;
+				ly_save[n] = cury;
+			}
+			if(abs(curx - l->last_x) < 64 && abs(cury - l->last_y) < 64)
+			{
+				l->x = ar_lerp_i(l->last_x, curx, settings.render_interp);
+				l->y = ar_lerp_i(l->last_y, cury, settings.render_interp);
+				l->calc_range();
+			}
+			n++;
+		}
+		light_screen(main_screen, xoff, yoff, white_light, v->ambient);
+		n = 0;
+		for(light_source *l = first_light_source; l; l = l->next)
+		{
+			if(n < 512)
+			{
+				l->x = lx_save[n];
+				l->y = ly_save[n];
+				l->calc_range();
+			}
+			n++;
+		}
+	}
+	else
+		light_screen(main_screen, xoff, yoff, white_light, v->ambient);
     /*if(xres * yres <= 64000)
           light_screen(main_screen, xoff, yoff, white_light, v->ambient);
     else light_screen(main_screen, xoff, yoff, white_light, 63);            // no lighting for hi - rez*/
@@ -1416,6 +1465,7 @@ Game::Game(int argc, char **argv)
   pal->load();
 
   recalc_local_view_space();   // now that we know what size the screen is...
+  apply_game_fov();
 
   dark_color = get_color(cache.img(window_colors)->Pixel(ivec2(2, 0)));
   bright_color = get_color(cache.img(window_colors)->Pixel(ivec2(0, 0)));
@@ -1482,7 +1532,7 @@ Game::Game(int argc, char **argv)
   if(main_net_cfg == NULL || (main_net_cfg->state != net_configuration::SERVER &&
                  main_net_cfg->state != net_configuration::CLIENT))
   {
-    if(!start_edit && !net_start())
+    if(!start_edit && !net_start() && !start_running)
       do_title();
   } else if(main_net_cfg && main_net_cfg->state == net_configuration::SERVER)
   {
@@ -1499,7 +1549,11 @@ Game::Game(int argc, char **argv)
 
 
   if(start_running)
+  {
+    if(!current_level)
+      load_level(level_file);
     set_state(RUN_STATE);
+  }
   else
   {
     main_screen->clear();
@@ -1537,6 +1591,10 @@ void Game::show_time()
 
 void Game::update_screen()
 {
+  g_allow_present = 0;
+  g_present_shift_x = 0;
+  g_present_shift_y = 0;
+  g_hud_split = 0;
   if(state == HELP_STATE)
     draw_help();
   else if(current_level)
@@ -1565,11 +1623,9 @@ void Game::update_screen()
         if(f->drawable())
     {
       if(interpolate_draw)
-      {
             draw_map(f, 1);
-        wm->flush_screen();
-      }
-          draw_map(f, 0);
+      else
+            draw_map(f, 0);
     }
       }
       if(current_automap)
@@ -1587,6 +1643,7 @@ void Game::update_screen()
   if(state == RUN_STATE && cache.prof_is_on())
     cache.prof_poll_end();
 
+  g_allow_present = 1;
   wm->flush_screen();
 
 }
@@ -1974,6 +2031,63 @@ void net_receive()
   }
 }
 
+void Game::update_stick_aim()
+{
+	// Modern DualSense-style aim: 60 Hz angle + fixed ring. Controller only.
+	if(!settings.ctr_aim || settings.ctr_stick_aim != 1)
+		return;
+	if(!settings.in_game || !current_level || !wm)
+		return;
+	if(state != RUN_STATE || ar_state == AR_LOADSAVE)
+		return;
+	if(dev & EDIT_MODE)
+		return;
+	if(demo_man.current_state() == demo_manager::PLAYING)
+		return;
+
+	view *f = first_view;
+	if(!f || !f->m_focus)
+		return;
+
+	float ax = settings.ctr_aim_x;
+	float ay = settings.ctr_aim_y;
+	float mag = std::hypot(ax, ay);
+	// Ignore DualSense spring-back through the opposite side of the deadzone.
+	float update_mag = (float)settings.ctr_rst_dz * 2.f;
+	if(update_mag < 12000.f)
+		update_mag = 12000.f;
+
+	if(mag > update_mag)
+	{
+		settings.ctr_aim_latched = true;
+		settings.ctr_aim_angle = std::atan2(ay, ax);
+	}
+
+	if(!settings.ctr_aim_latched)
+		return;
+
+	float t = settings.render_interp;
+	if(t < 0) t = 0;
+	if(t > 1) t = 1;
+
+	game_object *p = f->m_focus;
+	float px = (float)p->x;
+	float py = (float)p->y;
+	if(std::abs(p->x - p->last_x) < 64 && std::abs(p->y - p->last_y) < 64)
+	{
+		px = (float)p->last_x + (float)(p->x - p->last_x) * t;
+		py = (float)p->last_y + (float)(p->y - p->last_y) * t;
+	}
+
+	float r = (float)settings.ctr_cd;
+	int mx = (int)std::lround(px - f->interpolated_xoff_f()
+		+ std::cos(settings.ctr_aim_angle) * r
+		+ (float)settings.ctr_aim_correctx);
+	int my = (int)std::lround(py - f->interpolated_yoff_f()
+		+ std::sin(settings.ctr_aim_angle) * r - 13.f);
+	wm->SetMousePos(ivec2(mx, my));
+}
+
 void Game::step()
 {
 	//AR virtual crosshair inside a circle, solves atan2(axisy,axisx) aiming dead zone problems	
@@ -1991,16 +2105,14 @@ void Game::step()
 		{
 			if(f->m_focus)
 			{
-				f->update_scroll();	
-				
 				//AR
 				settings.in_game = true;
 
 				if(settings.cheat_god) f->god = 1;
 				else f->god = 0;							
 				
-				//AR aim with the controller each update, don't wait for input event (-13 moves center to chest area)
-				if(settings.ctr_aim==1)
+				// 2016 Xbox 360 ring at 15 Hz. Mouse is free at rest (stick_aiming), unlike original always-on warp.
+				if(settings.ctr_stick_aim == 0 && settings.stick_aiming())
 				{
 					//convert to percentage above "dead zone", don't move if value below "dead zone", range [-32767,32767]
 					float fx = 0, fy = 0;
@@ -2061,13 +2173,26 @@ void Game::step()
 				set_key_down(JK_ESC, 0);
 			}
 			ambient_ramp = 0;
-			view *v;
-			for(v = first_view; v; v = v->next)
-				v->update_scroll();
+			if(help_text_frames >= 0)
+				help_text_frames++;
+
+			for(light_source *l = first_light_source; l; l = l->next)
+			{
+				l->last_x = l->x;
+				l->last_y = l->y;
+			}
 
 			cache.prof_poll_start();
 			current_level->tick();
+			g_logic_tick++;
 			sbar.step();
+			// Scroll after the tick so camera lerp (lastlast→last) matches
+			// sprite lerp (last_x→x) instead of lagging a physics frame.
+			for(view *sv = first_view; sv; sv = sv->next)
+			{
+				if(sv->m_focus)
+					sv->update_scroll();
+			}
 		} else
 			dev_scroll();
 	} else if(state == JOY_CALB_STATE)
@@ -2591,20 +2716,46 @@ int main(int argc, char *argv[])
 			}
 			//
 			
-			// process all the objects in the world
-			if(SDL_GetTicks()-ar_lastupdate>=(settings.physics_update + ar_bullettime*settings.physics_update))
+			// Physics stays at the original 15 Hz so gameplay speed does not change.
+			// The Metal present below runs at display refresh with interpolated positions.
+			Uint32 now = SDL_GetTicks();
+			Uint32 period = (Uint32)(settings.physics_update + ar_bullettime * settings.physics_update);
+			if(period < 1) period = 1;
+			if(ar_lastupdate == 0)
+				ar_lastupdate = now;
+			while(now - ar_lastupdate >= period)
 			{
-				//AR update game at custom framerate, original is 15 FPS, physics are locked at 15 FPS
-				ar_lastupdate = SDL_GetTicks();
-				
-				g->step();//AR there are loops inside, it doesn't leave the menu loop, until menu says so!
+				ar_lastupdate += period;
+				g->step();
+				if(now - ar_lastupdate > period * 4)
+				{
+					ar_lastupdate = now;
+					break;
+				}
 			}
+			settings.render_interp = (float)(now - ar_lastupdate) / (float)period;
+			if(settings.render_interp < 0) settings.render_interp = 0;
+			if(settings.render_interp > 1) settings.render_interp = 1;
 
 			server_check();
 			g->calc_speed();
 
 			// see if a request for a level load was made during the last tick
+			g_fov_present = settings.classic_fov && settings.in_game
+				&& g->state == RUN_STATE && g->ar_state != AR_LOADSAVE
+				&& !(chat && chat->showing());
+			g->update_stick_aim();
 			if(!req_name[0]) g->update_screen(); // redraw the screen with any changes
+
+			// Cap presents at ~60 Hz. ProMotion 120 Hz vsync showed the same
+			// integer game pixel two or three times then jumped, which read as
+			// chop. Physics stays 15 Hz; this only spaces interpolated frames.
+			{
+				Uint32 frame_ms = 16;
+				Uint32 took = SDL_GetTicks() - now;
+				if(took < frame_ms)
+					SDL_Delay(frame_ms - took);
+			}
 		}
 
         net_uninit();

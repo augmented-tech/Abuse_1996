@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.16)
 
 project(abuse C CXX)
 set(abuse_VERSION 0.9)
@@ -6,6 +6,26 @@ set(abuse_VERSION_MAJOR 0)
 set(abuse_VERSION_MINOR 9)
 set(abuse_VERSION_PATCH 0)
 set(abuse_VERSION_TWEAK 0)
+
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_C_STANDARD 99)
+
+if(APPLE)
+    set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Build architectures" FORCE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+    add_compile_options(
+        -fno-delete-null-pointer-checks
+        -Wno-deprecated-declarations
+        -Wno-deprecated-register
+        -Wno-c++11-narrowing
+        -Wno-absolute-value
+        -Wno-undefined-bool-conversion
+        -Wno-format-security
+        -Wno-unused-result
+        -Wno-parentheses
+    )
+endif()
 
 # Detect the platform, as there's quite a bit of platform variation
 
@@ -17,6 +37,10 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 find_package(SDL2 2.0.0 REQUIRED)
 find_package(SDL2_mixer 2.0.0 REQUIRED)
+
+if(APPLE)
+    find_library(COREFOUNDATION_LIBRARY CoreFoundation REQUIRED)
+endif()
 
 include(CheckIncludeFiles)
 

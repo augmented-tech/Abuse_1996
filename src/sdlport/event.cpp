@@ -53,6 +53,21 @@ void calculate_mouse_scaling(void);
 //so I disable it if the user uses a D-pad, and enable it if the user uses the stick and passes the dead zone
 bool use_left_stick = false;
 
+void release_controller_move_keys()
+{
+	use_left_stick = false;
+	if(!the_game)
+		return;
+	the_game->set_key_down(get_key_binding("left", 0), 0);
+	the_game->set_key_down(get_key_binding("left2", 0), 0);
+	the_game->set_key_down(get_key_binding("right", 0), 0);
+	the_game->set_key_down(get_key_binding("right2", 0), 0);
+	the_game->set_key_down(get_key_binding("up", 0), 0);
+	the_game->set_key_down(get_key_binding("up2", 0), 0);
+	the_game->set_key_down(get_key_binding("down", 0), 0);
+	the_game->set_key_down(get_key_binding("down2", 0), 0);
+}
+
 void EventHandler::SysInit()
 {
     // Ignore activate events
@@ -60,13 +75,19 @@ void EventHandler::SysInit()
     //SDL_EventState(SDL_ACTIVEEVENT, SDL_IGNORE);
 }
 
+static bool freeze_mouse_for_stick()
+{
+	return settings.stick_aim_active() && settings.in_game &&
+		the_game && the_game->ar_state != AR_LOADSAVE;
+}
+
 void EventHandler::SysWarpMouse(ivec2 pos)
 {
-    // This should take into account mouse scaling.
-    pos.x = ((pos.x * mouse_xscale + 0x8000) >> 16) + mouse_xpad;
-    pos.y = ((pos.y * mouse_yscale + 0x8000) >> 16) + mouse_ypad;
-	//AR this repositions the system mouse based on in game values, so I turned it off for controller aiming
-    SDL_WarpMouseInWindow(window, pos.x, pos.y);
+    if(freeze_mouse_for_stick())
+        return;
+    int wx, wy;
+    game_to_window(pos.x, pos.y, wx, wy);
+    SDL_WarpMouseInWindow(window, wx, wy);
 }
 
 //
@@ -104,15 +125,21 @@ void EventHandler::SysEvent(Event &ev)
 	// Sort the mouse out
 	int x, y;
 	uint8_t buttons = SDL_GetMouseState(&x, &y);
-
-	// Remove any padding SDL may have added
-	x -= mouse_xpad;
-	if (x < 0) x = 0;
-	y -= mouse_ypad;
-	if (y < 0) y = 0;
-
-	x = Min((x << 16) / mouse_xscale, main_screen->Size().x - 1);
-	y = Min((y << 16) / mouse_yscale, main_screen->Size().y - 1);
+	static int last_os_mx = 0, last_os_my = 0, have_os_mouse = 0;
+	if(settings.ctr_aim && settings.ctr_stick_aim == 1 && settings.ctr_aim_latched &&
+		settings.in_game && have_os_mouse && !settings.stick_deflected())
+	{
+		int dx = x - last_os_mx;
+		int dy = y - last_os_my;
+		if(dx < 0) dx = -dx;
+		if(dy < 0) dy = -dy;
+		if(dx + dy >= 3)
+			settings.ctr_aim_latched = false;
+	}
+	last_os_mx = x;
+	last_os_my = y;
+	have_os_mouse = 1;
+	window_to_game(x, y, x, y);
 
 	ev.mouse_move.x = x;
 	ev.mouse_move.y = y;
@@ -121,7 +148,7 @@ void EventHandler::SysEvent(Event &ev)
 	//AR God knows where and what player uses as a final value to aim, m_pos or ev.mouse_move !?
 	//this prevents flickering when aiming with a controller
 	//we need to disable this if we are in the save game state in game, so we can use the mouse
-	if(settings.ctr_aim==1 && settings.in_game && the_game->ar_state!=AR_LOADSAVE)
+	if(freeze_mouse_for_stick())
 	{
 		ev.mouse_move.x = m_pos.x;
 		ev.mouse_move.y = m_pos.y;
@@ -335,8 +362,17 @@ void EventHandler::SysEvent(Event &ev)
 			ev.key = JK_F7;
 			break;
 
-		case SDLK_F8://AR toggle controller aim
-			if(ev.type==EV_KEYRELEASE) settings.ctr_aim = !settings.ctr_aim;
+		case SDLK_F8://AR toggle controller aim (KBM vs stick)
+			if(ev.type==EV_KEYRELEASE)
+			{
+				settings.ctr_aim = !settings.ctr_aim;
+				settings.reset_stick_aim();
+				if(!settings.ctr_aim)
+					release_controller_move_keys();
+				printf("Controller aim : %s (%s)\n",
+					settings.ctr_aim ? "on" : "off",
+					settings.ctr_stick_aim == 0 ? "classic" : "modern");
+			}
 			ev.key = JK_F8;
 			break;
 
@@ -426,6 +462,31 @@ void EventHandler::SysEvent(Event &ev)
         }
         break;
 
+	case SDL_CONTROLLERDEVICEADDED:
+		{
+			SDL_GameController *pad = SDL_GameControllerOpen(sdlev.cdevice.which);
+			if(pad)
+			{
+				printf("Controller : connected %s\n", SDL_GameControllerName(pad));
+			}
+			else
+				printf("Controller : failed to open (%s)\n", SDL_GetError());
+			ev.type = EV_SPURIOUS;
+		}
+		break;
+	case SDL_CONTROLLERDEVICEREMOVED:
+		{
+			settings.reset_stick_aim();
+			release_controller_move_keys();
+			SDL_GameController *pad = SDL_GameControllerFromInstanceID((SDL_JoystickID)sdlev.cdevice.which);
+			if(pad)
+			{
+				printf("Controller : disconnected %s\n", SDL_GameControllerName(pad));
+				SDL_GameControllerClose(pad);
+			}
+			ev.type = EV_SPURIOUS;
+		}
+		break;
 	case SDL_CONTROLLERBUTTONDOWN:
 	case SDL_CONTROLLERBUTTONUP:
 		if(settings.ctr_f5==sdlev.cbutton.button)//AR quick save
@@ -485,14 +546,6 @@ void EventHandler::SysEvent(Event &ev)
 		break;
 
 	case SDL_CONTROLLERAXISMOTION:
-		//AR completely ignore if disabled in the settings
-		//buttons don't matter, because those don't have sensitive sensors that accidentally get triggered by heartbeats and stuff...
-		if(!settings.ctr_aim)
-		{
-			ev.type = EV_SPURIOUS;
-			return;
-		}
-
 		switch (sdlev.caxis.axis)
 		{
 		case SDL_CONTROLLER_AXIS_LEFTX:
@@ -561,13 +614,23 @@ void EventHandler::SysEvent(Event &ev)
 			}
 			break;
 
-			//AR just save the values and update aim inside the game loop
+			// Right stick aims only when controller aim is on (F8 / aim off keeps walk+triggers).
 		case SDL_CONTROLLER_AXIS_RIGHTX:
+			if(!settings.ctr_aim)
+			{
+				ev.type = EV_SPURIOUS;
+				break;
+			}
 			settings.ctr_aim_x = sdlev.caxis.value;
 			ev.type = EV_SPURIOUS;
 			break;
 
 		case SDL_CONTROLLER_AXIS_RIGHTY:
+			if(!settings.ctr_aim)
+			{
+				ev.type = EV_SPURIOUS;
+				break;
+			}
 			settings.ctr_aim_y = sdlev.caxis.value;
 			ev.type = EV_SPURIOUS;
 			break;

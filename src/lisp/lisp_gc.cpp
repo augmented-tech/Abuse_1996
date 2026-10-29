@@ -59,7 +59,7 @@ LList *Lisp::CollectList(LList *x)
 {
     LList *prev = NULL, *first = NULL;
 
-    for (; x && item_type(x) == L_CONS_CELL; )
+    for (; lisp_valid_ptr(x) && item_type(x) == L_CONS_CELL; )
     {
         LList *p = LList::Create();
         LObject *old_car = x->m_car;
@@ -87,6 +87,12 @@ LObject *Lisp::CollectObject(LObject *x)
     LObject *ret = x;
 
     maxgcdepth = Max(maxgcdepth, ++gcdepth);
+
+    if (!lisp_valid_ptr(x))
+    {
+        --gcdepth;
+        return x;
+    }
 
     if ((uint8_t *)x >= cstart && (uint8_t *)x < cend)
     {
@@ -161,7 +167,7 @@ LObject *Lisp::CollectObject(LObject *x)
     {
         // Still need to remap cons_cells lying outside of space, for
         // instance on the stack.
-        for (LObject *cell = NULL; x; cell = x, x = CDR(x))
+        for (LObject *cell = NULL; lisp_valid_ptr(x); cell = x, x = CDR(x))
         {
             if (item_type(x) != L_CONS_CELL)
             {

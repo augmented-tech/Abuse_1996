@@ -26,9 +26,19 @@ extern unsigned int scale;//AR
 extern int xoff,yoff;
 extern image *main_screen;
 
+extern int g_allow_present;
+extern float g_present_shift_x, g_present_shift_y;
+extern int g_hud_split;
+extern int g_fov_present; // 1 = crop present to 320x200 classic FOV
+
 void set_mode(int argc=0, char **argv=NULL);
 void close_graphics();
 void update_window_done();
+void window_to_game(int wx, int wy, int &gx, int &gy);
+void game_to_window(int gx, int gy, int &wx, int &wy);
+void video_set_linear_filter(bool on);
+void video_set_grab(bool on);
+void present_src_size(int &pw, int &ph);
 
 void update_dirty(image *im, int xoff=0, int yoff=0);
 void put_part_image(image *im, int x, int y, int x1, int y1, int x2, int y2);

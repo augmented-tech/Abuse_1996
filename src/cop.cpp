@@ -786,12 +786,19 @@ void *top_draw()
 
 
 
+extern int g_logic_tick;
+
 void *bottom_draw()
 {
   game_object *o=current_object;
+  static int last_ramp_tick = -1;
+  // Palette ramp used to decay once per present (4× per physics tick) and
+  // reload the SDL palette every interpolated frame, which flashed.
+  bool apply_ramp = (g_logic_tick != last_ramp_tick);
 
-  if (o->lvars[r_ramp] || o->lvars[g_ramp] || o->lvars[b_ramp])
+  if (apply_ramp && (o->lvars[r_ramp] || o->lvars[g_ramp] || o->lvars[b_ramp]))
   {
+    last_ramp_tick = g_logic_tick;
     int r=o->lvars[r_ramp];
     if (r>7) r-=7;
     else r=0;

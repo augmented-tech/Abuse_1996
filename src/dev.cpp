@@ -47,7 +47,7 @@ extern int get_key_binding( char const *dir, int i );
 
 #define make_above_tile(x) ((x)|0x4000)
 char backw_on=0,forew_on=0,show_menu_on=0,ledit_on=0,pmenu_on=0,omenu_on=0,commandw_on=0,tbw_on=0,
-     searchw_on=0,small_render_on=0,interpolate_draw=0,disable_autolight=0,fps_on=0,profile_on=0,
+     searchw_on=0,small_render_on=0,interpolate_draw=1,disable_autolight=0,fps_on=0,profile_on=0,
      show_names=0,fg_reversed=0,
      raise_all;
 
@@ -920,6 +920,7 @@ void dev_init(int argc, char **argv)
       i++;
       strncpy(level_file, argv[i], sizeof(level_file) - 1);
       level_file[sizeof(level_file) - 1] = '\0';
+      start_running=1;
     } else if (!strcmp(argv[i],"-2"))
       start_doubled=1;
     else if (!strcmp(argv[i],"-demo"))

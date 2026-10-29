@@ -731,7 +731,7 @@ void main_menu()
     inm->allow_no_selections();
     inm->clear_current();
 
-    main_screen->AddDirty(ivec2(0), ivec2(320, 200));
+    main_screen->AddDirty(ivec2(0), ivec2(xres, yres));
 
     Event ev;
 

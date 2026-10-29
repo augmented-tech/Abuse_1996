@@ -82,6 +82,8 @@ set_target_properties(abuse PROPERTIES MACOSX_BUNDLE_ICON_FILE "abuse")
 set_target_properties(abuse PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "Abuse")
 set_target_properties(abuse PROPERTIES MACOSX_BUNDLE_SHORT_VERSION_STRING "${abuse_VERSION}")
 set_target_properties(abuse PROPERTIES MACOSX_BUNDLE_BUNDLE_VERSION "${abuse_VERSION}")
+set_target_properties(abuse PROPERTIES MACOSX_BUNDLE_GUI_IDENTIFIER "com.crackdotcom.abuse")
+set_target_properties(abuse PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/osx/Info.plist.in")
 
 target_link_libraries(abuse lisp)
 target_link_libraries(abuse sdlport)
@@ -89,17 +91,14 @@ target_link_libraries(abuse imlib)
 target_link_libraries(abuse net)
 target_link_libraries(abuse ${SDL2_LIBRARY})
 target_link_libraries(abuse ${SDL2_MIXER_LIBRARIES})
+if(APPLE)
+    target_link_libraries(abuse ${COREFOUNDATION_LIBRARY})
+endif()
 if(OPENGL_FOUND)
     target_link_libraries(abuse ${OPENGL_LIBRARIES})
 endif(OPENGL_FOUND)
 
-add_executable(abuse-tool
-	tool/abuse-tool.cpp
-	crc.cpp crc.h
-	tool/AR_SPEC.cpp tool/AR_SPEC.h
-	tool/AR_Help.cpp tool/AR_Help.h)
-
-target_link_libraries(abuse-tool imlib)
+# abuse-tool needs OpenCV 2.x and is not required to play the game.
 
 include_directories(
     ${abuse_SOURCE_DIR}/src
@@ -111,7 +110,7 @@ include_directories(
 )
 if(WIN32)
     # Under Windows, throw them into the root
-    install(TARGETS abuse abuse-tool
+    install(TARGETS abuse
         RUNTIME DESTINATION "."
         LIBRARY DESTINATION ".")
     # We also need to include the SDL DLLs or nothing will work
@@ -133,8 +132,8 @@ if(WIN32)
     install(FILES ${SDL2MIXER_DLL_PATH}/SDL2_mixer.dll DESTINATION ".")
 else()
     # Under Linux, we want the tools in bin
-    install(TARGETS abuse abuse-tool RUNTIME DESTINATION bin
-    BUNDLE DESTINATION "${CMAKE_INSTALL_PREFIX}")
+    install(TARGETS abuse RUNTIME DESTINATION bin
+        BUNDLE DESTINATION "${CMAKE_INSTALL_PREFIX}")
     if(APPLE)
         install(FILES "../osx/abuse.icns" DESTINATION "${CMAKE_INSTALL_PREFIX}/abuse.app/Contents/Resources")
     endif()

@@ -44,6 +44,17 @@
 #include "cop.h"
 #include "nfserver.h"
 #include "lisp_gc.h"
+#include "sdlport/setup.h"
+#include <cmath>
+
+extern Settings settings;
+
+static inline int32_t ar_lerp_i(int32_t a, int32_t b, float t)
+{
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    return a + (int32_t)lroundf((float)(b - a) * t);
+}
 
 level *current_level;
 
@@ -585,28 +596,40 @@ game_object *level::all_boundary_setback(game_object *subject, int32_t x1, int32
 
 void level::interpolate_draw_objects(view *v)
 {
-  int32_t old_x,old_y;
   current_view=v;
 
-  game_object *o=first_active;
-  for (; o; o=o->next_active)
-  {
-    old_x=o->x;
-    old_y=o->y;
-    o->x=(o->last_x+o->x)/2;
-    o->y=(o->last_y+o->y)/2;
-    o->last_x=old_x;
-    o->last_y=old_y;
-  }
+  // Lerp every active object first, then draw. Nick is two objects (legs +
+  // torso); the torso draw snaps to the legs' x/y, so those have to already
+  // be interpolated or the upper body stays on the 15 Hz pose while the
+  // legs slide — the "idle animation while moving" flicker.
+  int n = 0;
+  game_object *o;
+  for (o = first_active; o; o = o->next_active)
+    n++;
+  if (!n)
+    return;
 
-  for (o=first_active; o; o=o->next_active)
+  int32_t *saved = (int32_t *)malloc(sizeof(int32_t) * n * 2);
+  int i = 0;
+  for (o = first_active; o; o = o->next_active, i++)
+  {
+    saved[i * 2] = o->x;
+    saved[i * 2 + 1] = o->y;
+    if (abs(o->x - o->last_x) < 64 && abs(o->y - o->last_y) < 64)
+    {
+      o->x = ar_lerp_i(o->last_x, o->x, settings.render_interp);
+      o->y = ar_lerp_i(o->last_y, o->y, settings.render_interp);
+    }
+  }
+  for (o = first_active; o; o = o->next_active)
     o->draw();
-
-  for (o=first_active; o; o=o->next_active)
+  i = 0;
+  for (o = first_active; o; o = o->next_active, i++)
   {
-    o->x=o->last_x;
-    o->y=o->last_y;
+    o->x = saved[i * 2];
+    o->y = saved[i * 2 + 1];
   }
+  free(saved);
 }
 
 bFILE *rcheck=NULL,*rcheck_lp=NULL;
@@ -651,10 +674,14 @@ int level::tick()
     }
   }*/
 
-  for (o=first_active; o; )
+  for (o=first; o; o=o->next)
   {
     o->last_x=o->x;
     o->last_y=o->y;
+  }
+
+  for (o=first_active; o; )
+  {
     cur=o;
     view *c=o->controller();
     if (!(dev&SUSPEND_MODE) || c)

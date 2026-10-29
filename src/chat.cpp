@@ -37,11 +37,16 @@ void chat_console::clear()
   redraw();
 }
 
-void chat_console::put_all(char *st)
+void chat_console::put_all(char const *st)
 {
   memmove(screen,screen+w,w*(h-3));
   memset(screen+w*(h-3),' ',w);
-  memcpy(screen+w*(h-3),st,strlen(st));
+  if(st)
+  {
+    size_t n = strlen(st);
+    if(n > (size_t)w) n = (size_t)w;
+    memcpy(screen+w*(h-3),st,n);
+  }
   redraw();
 }
 

@@ -12,6 +12,7 @@
 #define __LISP_HPP_
 
 #include <cstdlib>
+#include <cstdint>
 #include <SDL_config.h>//AR (#include <SDL_config.h>)
 
 #ifdef L_PROFILE
@@ -250,7 +251,21 @@ private:
 
 static inline LObject *&CAR(void *x) { return ((LList *)x)->m_car; }
 static inline LObject *&CDR(void *x) { return ((LList *)x)->m_cdr; }
-static inline ltype item_type(void *x) { if (x) return *(ltype *)x; return L_CONS_CELL; }
+static inline bool lisp_valid_ptr(void *x)
+{
+    uintptr_t p = (uintptr_t)x;
+    if (p < 4096)
+        return false;
+    if (p & (sizeof(void *) - 1))
+        return false;
+#if INTPTR_MAX > INT32_MAX
+    /* Reject 32-bit truncated pointers on 64-bit hosts. */
+    if (p < 0x100000000ULL)
+        return false;
+#endif
+    return true;
+}
+static inline ltype item_type(void *x) { if (lisp_valid_ptr(x)) return *(ltype *)x; return L_CONS_CELL; }
 
 void perm_space();
 void tmp_space();

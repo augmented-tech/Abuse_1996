@@ -22,6 +22,7 @@
 #endif
 
 #include "common.h"
+#include <cmath>
 
 #include "game.h"
 
@@ -46,8 +47,205 @@
 
 //AR
 #include "sdlport/setup.h"
+#include "sdlport/sound.h"
+#include <cstdlib>
+#include <cstdio>
+#include <cstring>
 extern Settings settings;
+extern int xres, yres;
 //
+
+static std::string ar_lower_copy(std::string s)
+{
+	for(size_t i = 0; i < s.size(); i++)
+		if(s[i] >= 'A' && s[i] <= 'Z')
+			s[i] = (char)(s[i] - 'A' + 'a');
+	return s;
+}
+
+// Live c-console settings. Cheats stay as exact words below.
+static std::string ar_cvar_key(std::string s)
+{
+	s = ar_lower_copy(s);
+	for(size_t i = 0; i < s.size(); i++)
+		if(s[i] == '-')
+			s[i] = '_';
+	return s;
+}
+
+static bool ar_console_command(std::string text, std::string &reply)
+{
+	while(!text.empty() && (text[0] == ' ' || text[0] == '\t'))
+		text.erase(0, 1);
+	while(!text.empty() && (text[text.size() - 1] == ' ' || text[text.size() - 1] == '\t'))
+		text.erase(text.size() - 1, 1);
+	if(text.empty())
+		return false;
+
+	std::string cmd = text, arg;
+	size_t sp = text.find(' ');
+	if(sp != std::string::npos)
+	{
+		cmd = text.substr(0, sp);
+		arg = text.substr(sp + 1);
+		while(!arg.empty() && (arg[0] == ' ' || arg[0] == '\t'))
+			arg.erase(0, 1);
+		while(!arg.empty() && (arg[arg.size() - 1] == ' ' || arg[arg.size() - 1] == '\t'))
+			arg.erase(arg.size() - 1, 1);
+	}
+	cmd = ar_lower_copy(cmd);
+
+	if(cmd == "help" || cmd == "?")
+	{
+		if(chat)
+		{
+			chat->put_all("stick aim ring fov soundfont");
+			chat->put_all("get/set/save/cvars  status");
+			chat->put_all("cheats: god giveall bullettime");
+		}
+		reply = "help listed";
+		return true;
+	}
+	if(cmd == "status")
+	{
+		char buf[60];
+		snprintf(buf, sizeof(buf), "stick=%s aim=%s fov=%s %dx%d",
+			settings.ctr_stick_aim == 0 ? "classic" : "modern",
+			settings.ctr_aim ? "on" : "off",
+			settings.classic_fov ? "classic" : "wide", xres, yres);
+		reply = buf;
+		return true;
+	}
+	if(cmd == "stick")
+	{
+		std::string a = ar_lower_copy(arg);
+		if(a.empty())
+			settings.ctr_stick_aim = settings.ctr_stick_aim == 0 ? 1 : 0;
+		else if(a == "classic" || a == "0" || a == "2016")
+			settings.ctr_stick_aim = 0;
+		else if(a == "modern" || a == "1")
+			settings.ctr_stick_aim = 1;
+		else
+		{
+			reply = "stick classic|modern";
+			return true;
+		}
+		settings.ctr_aim_latched = false;
+		reply = std::string("stick ") + (settings.ctr_stick_aim == 0 ? "classic" : "modern");
+		return true;
+	}
+	if(cmd == "aim")
+	{
+		std::string a = ar_lower_copy(arg);
+		if(a.empty())
+			settings.ctr_aim = !settings.ctr_aim;
+		else if(a == "on" || a == "1")
+			settings.ctr_aim = true;
+		else if(a == "off" || a == "0")
+			settings.ctr_aim = false;
+		else
+		{
+			reply = "aim on|off";
+			return true;
+		}
+		settings.reset_stick_aim();
+		if(!settings.ctr_aim)
+			release_controller_move_keys();
+		reply = std::string("aim ") + (settings.ctr_aim ? "on" : "off");
+		return true;
+	}
+	if(cmd == "ring")
+	{
+		if(!arg.empty())
+		{
+			char *end = NULL;
+			long n = strtol(arg.c_str(), &end, 10);
+			if(end == arg.c_str() || (end && *end != 0))
+			{
+				reply = "ring <20-200>";
+				return true;
+			}
+			if(n < 20) n = 20;
+			if(n > 200) n = 200;
+			settings.ctr_cd = (int)n;
+		}
+		char buf[40];
+		snprintf(buf, sizeof(buf), "ring %d", settings.ctr_cd);
+		reply = buf;
+		return true;
+	}
+	if(cmd == "fov")
+	{
+		settings.SetCvar("fov", arg.empty() ? "toggle" : arg, reply);
+		return true;
+	}
+	if(cmd == "get")
+	{
+		if(arg.empty())
+		{
+			reply = "get KEY";
+			return true;
+		}
+		std::string val;
+		if(!settings.GetCvar(ar_cvar_key(arg), val))
+			reply = "unknown cvar";
+		else
+		{
+			if(val.size() > 40)
+				val = val.substr(val.size() - 40);
+			reply = ar_cvar_key(arg) + "=" + val;
+			if(reply.size() > 50)
+				reply.resize(50);
+		}
+		return true;
+	}
+	if(cmd == "set")
+	{
+		size_t sp2 = arg.find(' ');
+		if(sp2 == std::string::npos)
+		{
+			reply = "set KEY VAL";
+			return true;
+		}
+		std::string k = ar_cvar_key(arg.substr(0, sp2));
+		std::string v = arg.substr(sp2 + 1);
+		settings.SetCvar(k, v, reply);
+		return true;
+	}
+	if(cmd == "save")
+	{
+		reply = settings.WriteConfigFile() ? "config saved" : "save failed";
+		return true;
+	}
+	if(cmd == "cvars")
+	{
+		if(chat)
+		{
+			chat->put_all("get KEY  set KEY VAL  save");
+			chat->put_all("fov stick aim ring soundfont");
+		}
+		reply = "also: volume_sound volume_music";
+		return true;
+	}
+	if(cmd == "soundfont")
+	{
+		if(arg.empty())
+		{
+			const char *p = sound_current_font();
+			if(!p || !p[0])
+				reply = "soundfont none";
+			else
+			{
+				const char *base = strrchr(p, '/');
+				reply = base ? base + 1 : p;
+			}
+			return true;
+		}
+		settings.SetCvar("soundfont", arg, reply);
+		return true;
+	}
+	return false;
+}
 
 extern int get_key_binding( char const *dir, int i );
 view *player_list=NULL;
@@ -133,13 +331,23 @@ int32_t view::xoff()
     return Max(0, m_lastpos.x - (m_bb.x - m_aa.x + 1) / 2 + m_shift.x + pan_x);
 }
 
-int32_t view::interpolated_xoff()
+float view::interpolated_xoff_f()
 {
     if (!m_focus)
-        return pan_x;
+        return (float)pan_x;
 
-    return Max(0, (m_lastlastpos.x + m_lastpos.x) / 2
-                    - (m_bb.x - m_aa.x + 1) / 2 + m_shift.x + pan_x);
+    float t = settings.render_interp;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    float px = (float)m_lastlastpos.x + (float)(m_lastpos.x - m_lastlastpos.x) * t;
+    float v = px - (float)((m_bb.x - m_aa.x + 1) / 2) + (float)m_shift.x + (float)pan_x;
+    if (v < 0) v = 0;
+    return v;
+}
+
+int32_t view::interpolated_xoff()
+{
+    return (int32_t)floorf(interpolated_xoff_f());
 }
 
 int32_t view::yoff()
@@ -150,13 +358,23 @@ int32_t view::yoff()
     return Max(0, m_lastpos.y - (m_bb.y - m_aa.y + 1) / 2 - m_shift.y + pan_y);
 }
 
-int32_t view::interpolated_yoff()
+float view::interpolated_yoff_f()
 {
     if (!m_focus)
-        return pan_y;
+        return (float)pan_y;
 
-    return Max(0, (m_lastlastpos.y + m_lastpos.y) / 2
-                    - (m_bb.y - m_aa.y + 1) / 2 - m_shift.y + pan_y);
+    float t = settings.render_interp;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    float py = (float)m_lastlastpos.y + (float)(m_lastpos.y - m_lastlastpos.y) * t;
+    float v = py - (float)((m_bb.y - m_aa.y + 1) / 2) - (float)m_shift.y + (float)pan_y;
+    if (v < 0) v = 0;
+    return v;
+}
+
+int32_t view::interpolated_yoff()
+{
+    return (int32_t)floorf(interpolated_yoff_f());
 }
 
 
@@ -172,10 +390,16 @@ void view::update_scroll()
     else if (m_focus->x < m_lastpos.x)
         m_lastpos.x = Min(m_lastpos.x, m_focus->x + no_xleft);
 
+    if (abs(m_lastpos.x - m_lastlastpos.x) > 160)
+        m_lastlastpos.x = m_lastpos.x;
+
     if (m_focus->y > m_lastpos.y)
         m_lastpos.y = Max(m_lastpos.y, m_focus->y - no_ybottom);
     else if (m_focus->y < m_lastpos.y)
         m_lastpos.y = Min(m_lastpos.y, m_focus->y + no_ytop);
+
+    if (abs(m_lastpos.y - m_lastlastpos.y) > 120)
+        m_lastlastpos.y = m_lastpos.y;
 }
 
 static char cur_user_name[20] = { 0 };
@@ -457,7 +681,15 @@ void view::add_chat_key(int key)  // return string if buf is complete
 	  if(chat_text.empty() || chat_text=="exit" || chat_text=="quit")
 	  {
 		  chat->toggle();
-	  }	  
+	  }
+	  else
+	  {
+		  std::string con_reply;
+		  if(local_player() && ar_console_command(chat_text, con_reply))
+		  {
+			  chat_text = con_reply;
+			  snprintf(m_chat_buf, sizeof(m_chat_buf), "%.50s", chat_text.c_str());
+		  }
 	  else if(chat_text=="god")
 	  {
 		  settings.cheat_god = !settings.cheat_god;
@@ -521,7 +753,7 @@ void view::add_chat_key(int key)  // return string if buf is complete
 		  chat_text += " ENABLED";
 		  strcpy(m_chat_buf,chat_text.c_str());
 	  }
-	  //
+	  }
 
     if (DEFINEDP(l_chat_input->GetFunction()))
     {
@@ -711,12 +943,26 @@ int view::handle_event(Event &ev)
             case '5':
             case '6':
             case '7':
+            case '8':
+            case '9':
             {
-                if((( dev & EDIT_MODE ) == 0 ) && ( weapon_total( ev.key - '1' ) > 0 ))
+                int slot = ev.key - '1';
+                if((( dev & EDIT_MODE ) == 0 ) && slot < total_weapons && weapon_total( slot ) > 0 )
                 {
                     suggest.send_weapon_change = 1;
-                    suggest.new_weapon=ev.key - '1';
+                    suggest.new_weapon = slot;
                 }
+                return 1;
+            } break;
+            case '0':
+            {
+                int slot = 9;
+                if((( dev & EDIT_MODE ) == 0 ) && slot < total_weapons && weapon_total( slot ) > 0 )
+                {
+                    suggest.send_weapon_change = 1;
+                    suggest.new_weapon = slot;
+                }
+                return 1;
             } break;
 
 			//AR left hardcoded because of the help screen
@@ -762,9 +1008,34 @@ int view::drawable()
 }
 
 
+void apply_game_fov()
+{
+	recalc_local_view_space();
+	if(the_game)
+		the_game->need_refresh();
+	if(main_screen)
+		sbar.redraw(main_screen);
+}
+
 void recalc_local_view_space()   // calculates view areas for local players, should be called
                                  // when adding or deleting local players
 {
+  if (settings.classic_fov)
+  {
+    for (view *f=player_list; f; f=f->next)
+    {
+      if (!f->local_player())
+        continue;
+      int hud = total_weapons ? 33 : 0;
+      f->m_aa = ivec2(0, 0);
+      f->m_bb = ivec2(319, 199 - hud);
+      if (f->m_bb.y < 40)
+        f->m_bb.y = 40;
+      f->suggest.send_view = 0;
+    }
+    return;
+  }
+
   if (main_screen)
   {
     int t=total_local_players();
