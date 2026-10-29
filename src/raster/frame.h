@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "image.h"
+#include "transimage.h"
 #include "view.h"
 #include <cstdint>
 #include <vector>
@@ -18,6 +19,7 @@ enum RasterOp : uint8_t {
 struct RasterCmd {
     RasterOp op;
     image *im;
+    TransImage *tim;
     int32_t x, y, x2, y2;
     int color;
     void (*call)(view *);
@@ -29,7 +31,7 @@ struct RasterFrame {
     void reset();
     void clip(int x, int y, int x2, int y2);
     void put_image(image *im, int x, int y);
-    void put_filled(image *im, int x, int y, int color);
+    void put_filled(TransImage *im, int x, int y, int color);
     void call(void (*fn)(view *), view *v);
     void light();
 };

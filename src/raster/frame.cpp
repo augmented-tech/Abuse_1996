@@ -3,12 +3,14 @@
 #endif
 
 #include "frame.h"
+#include "video.h"
 
 static RasterCmd blank_cmd()
 {
     RasterCmd c;
     c.op = ROP_CLIP;
     c.im = NULL;
+    c.tim = NULL;
     c.x = 0;
     c.y = 0;
     c.x2 = 0;
@@ -47,11 +49,11 @@ void RasterFrame::put_image(image *im, int x, int y)
     cmds.push_back(c);
 }
 
-void RasterFrame::put_filled(image *im, int x, int y, int color)
+void RasterFrame::put_filled(TransImage *im, int x, int y, int color)
 {
     RasterCmd c = blank_cmd();
     c.op = ROP_PUT_FILLED;
-    c.im = im;
+    c.tim = im;
     c.x = x;
     c.y = y;
     c.color = color;
@@ -76,5 +78,25 @@ void RasterFrame::light()
 
 void raster_execute_legacy(RasterFrame const &f)
 {
-    (void)f;
+    for (size_t i = 0; i < f.cmds.size(); i++)
+    {
+        RasterCmd const &c = f.cmds[i];
+        switch (c.op)
+        {
+        case ROP_CLIP:
+            main_screen->SetClip(ivec2(c.x, c.y), ivec2(c.x2, c.y2));
+            break;
+        case ROP_PUT_IMAGE:
+            c.im->PutImage(main_screen, ivec2(c.x, c.y));
+            break;
+        case ROP_PUT_FILLED:
+            c.tim->PutFilled(main_screen, ivec2(c.x, c.y), (uint8_t)c.color);
+            break;
+        case ROP_CALL:
+            c.call(c.v);
+            break;
+        case ROP_LIGHT:
+            break;
+        }
+    }
 }
