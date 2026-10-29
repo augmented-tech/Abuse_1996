@@ -4,6 +4,7 @@
 
 #include "frame.h"
 #include "video.h"
+#include <cstring>
 
 static RasterCmd blank_cmd()
 {
@@ -76,6 +77,92 @@ void RasterFrame::light()
     cmds.push_back(c);
 }
 
+uint32_t raster_crc_rect(image *im, int x, int y, int x2, int y2)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    for (int row = y; row < y2; row++)
+    {
+        uint8_t *p = im->scan_line(row) + x;
+        for (int col = x; col < x2; col++, p++)
+        {
+            crc ^= *p;
+            for (int b = 0; b < 8; b++)
+            {
+                uint32_t mask = (uint32_t)-(int)(crc & 1u);
+                crc = (crc >> 1) ^ (0xEDB88320u & mask);
+            }
+        }
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
+
+static int rows_differ(image *a, image *b)
+{
+    int w = a->Size().x;
+    int h = a->Size().y;
+    for (int y = 0; y < h; y++)
+    {
+        if (memcmp(a->scan_line(y), b->scan_line(y), (size_t)w) != 0)
+            return 1;
+    }
+    return 0;
+}
+
+int raster_selftest()
+{
+    image *dst_a = new image(ivec2(32, 32));
+    image *dst_b = new image(ivec2(32, 32));
+    image *tile = new image(ivec2(8, 8));
+    dst_a->clear(1);
+    dst_b->clear(1);
+    for (int y = 0; y < 8; y++)
+        memset(tile->scan_line(y), (uint8_t)(10 + y), 8);
+
+    image *saved = main_screen;
+    main_screen = dst_a;
+    main_screen->PutImage(tile, ivec2(4, 6));
+
+    main_screen = dst_b;
+    RasterFrame f;
+    f.reset();
+    f.clip(0, 0, 32, 32);
+    f.put_image(tile, 4, 6);
+    raster_execute_legacy(f);
+
+    int bad = 0;
+    if (raster_crc_rect(dst_a, 0, 0, 32, 32) != raster_crc_rect(dst_b, 0, 0, 32, 32))
+        bad = 1;
+    if (rows_differ(dst_a, dst_b))
+        bad = 1;
+
+    image *src = new image(ivec2(8, 8));
+    src->clear(0);
+    src->PutPixel(ivec2(1, 0), 9);
+    TransImage *filled = new TransImage(src, "selftest");
+    dst_a->clear(3);
+    dst_b->clear(3);
+    main_screen = dst_a;
+    filled->PutFilled(main_screen, ivec2(4, 6), 0);
+    main_screen = dst_b;
+    RasterFrame g;
+    g.reset();
+    g.clip(0, 0, 32, 32);
+    g.put_filled(filled, 4, 6, 0);
+    raster_execute_legacy(g);
+    if (raster_crc_rect(dst_a, 0, 0, 32, 32) != raster_crc_rect(dst_b, 0, 0, 32, 32))
+        bad = 1;
+    if (rows_differ(dst_a, dst_b))
+        bad = 1;
+
+    main_screen = saved;
+    delete filled;
+    delete src;
+    delete tile;
+    delete dst_b;
+    delete dst_a;
+    return bad;
+}
+
 void raster_execute_legacy(RasterFrame const &f)
 {
     for (size_t i = 0; i < f.cmds.size(); i++)
@@ -87,7 +174,7 @@ void raster_execute_legacy(RasterFrame const &f)
             main_screen->SetClip(ivec2(c.x, c.y), ivec2(c.x2, c.y2));
             break;
         case ROP_PUT_IMAGE:
-            c.im->PutImage(main_screen, ivec2(c.x, c.y));
+            main_screen->PutImage(c.im, ivec2(c.x, c.y));
             break;
         case ROP_PUT_FILLED:
             c.tim->PutFilled(main_screen, ivec2(c.x, c.y), (uint8_t)c.color);

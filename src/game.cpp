@@ -113,6 +113,7 @@ Settings settings;
 
 // Enable TCP/IP driver
 #if HAVE_NETWORK
+#include "raster/frame.h"
 #include "tcpip.h"
 tcpip_protocol tcpip;
 #endif
@@ -2563,6 +2564,8 @@ int main(int argc, char *argv[])
     {
         if (!strcmp(argv[i], "-cprint"))
             external_print = 1;
+        if (!strcmp(argv[i], "--raster-selftest"))
+            return raster_selftest();
     }
 
 #if (defined(__APPLE__) && !defined(__MACH__))
