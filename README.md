@@ -7,7 +7,7 @@ which comes from Xenoveritas (http://github.com/Xenoveritas/abuse) and
 the SDL port at http://abuse.zoy.org.
 
 It is a native arm64 Mac build of the 1996 Crack dot Com game. Physics stay
-at 15 Hz. Pain (a planned spiritual successor) is not this repository.
+at 15 Hz.
 
 --------
 
