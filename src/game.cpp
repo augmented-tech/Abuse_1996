@@ -759,6 +759,69 @@ void raster_light_legacy(view *v, int32_t xoff, int32_t yoff, image *old_screen,
     }
 }
 
+static int g_raster_people_interp;
+static int g_raster_people_layer;
+
+static void raster_people(view *v)
+{
+    if(g_raster_people_layer)
+    {
+        if(g_raster_people_interp)
+            current_level->interpolate_draw_objects(v);
+        else
+            current_level->draw_objects(v);
+    }
+    draw_panims(v);
+}
+
+static void raster_dev_draw(view *v)
+{
+    if(dev_cont)
+        dev_cont->dev_draw(v);
+}
+
+static int g_rb_x1, g_rb_y1, g_rb_x2, g_rb_y2, g_rb_xo, g_rb_yo, g_rb_xinc, g_rb_yinc;
+
+static void raster_bounds(view *)
+{
+    int b = wm->bright_color();
+    int x1 = g_rb_x1, y1 = g_rb_y1, x2 = g_rb_x2, y2 = g_rb_y2;
+    int xo = g_rb_xo, yo = g_rb_yo, xinc = g_rb_xinc, yinc = g_rb_yinc;
+    int fg_h = current_level->foreground_height(), fg_w = current_level->foreground_width();
+    int x, y, draw_x, draw_y;
+
+    for(y = y1, draw_y = yo; y <= y2; y++, draw_y += yinc)
+    {
+        uint16_t *cl;
+        if(y < fg_h)
+            cl = current_level->get_fgline(y)+x1;
+        else cl = NULL;
+        for(x = x1, draw_x = xo; x <= x2; x++, draw_x += xinc, cl++)
+        {
+            if(x < fg_w && y < fg_h)
+            {
+                int fort_num = fgvalue(*cl);
+                if(fort_num != BLACK)
+                {
+                    point_list *p = the_game->get_fg(fort_num)->points;
+                    uint8_t *d = p->data;
+                    if(p->tot)
+                    {
+                        for(int i = 1; i < p->tot; i++)
+                        {
+                            d += 2;
+                            main_screen->Line(ivec2(draw_x + *(d - 2), draw_y + *(d - 1)),
+                                              ivec2(draw_x + *d, draw_y + *(d + 1)), b);
+                        }
+                        main_screen->Line(ivec2(draw_x + *d, draw_y + *(d - 1)),
+                                          ivec2(draw_x + p->data[0], draw_y + p->data[1]), b);
+                    }
+                }
+            }
+        }
+    }
+}
+
 static void post_render()
 {
   if(DEFINEDP(l_post_render->GetFunction()))
@@ -872,6 +935,13 @@ void Game::draw_map(view *v, int interpolate)
   yo = v->m_aa.y - nyoff % btile_height();
 
   int xinc, yinc, draw_x, draw_y;
+  int use_raster = g_raster_backend && !small_render && !(dev & MAP_MODE);
+  RasterFrame frame;
+  if(use_raster)
+  {
+    frame.reset();
+    frame.clip(v->m_aa.x, v->m_aa.y, v->m_bb.x + 1, v->m_bb.y + 1);
+  }
 
   if(!(dev & MAP_MODE) && (dev & DRAW_BG_LAYER))
   {
@@ -896,7 +966,10 @@ void Game::draw_map(view *v, int interpolate)
     }
     else bt = get_bg(0);
 
-        main_screen->PutImage(bt->im, ivec2(draw_x, draw_y));
+        if(use_raster)
+          frame.put_image(bt->im, draw_x, draw_y);
+        else
+          main_screen->PutImage(bt->im, ivec2(draw_x, draw_y));
 //        if(!(dev & EDIT_MODE) && bt->next)
 //      current_level->put_bg(x, y, bt->next);
       }
@@ -1018,7 +1091,10 @@ void Game::draw_map(view *v, int interpolate)
           int fort_num = fgvalue(*cl);
           if(fort_num != BLACK)
           {
-            get_fg(fort_num)->im->PutImage(main_screen, ivec2(draw_x, draw_y));
+            if(use_raster)
+              frame.put_trans(get_fg(fort_num)->im, draw_x, draw_y);
+            else
+              get_fg(fort_num)->im->PutImage(main_screen, ivec2(draw_x, draw_y));
 
         if(!(dev & EDIT_MODE))
             *cl|=0x8000;      // mark as has - been - seen
@@ -1031,7 +1107,13 @@ void Game::draw_map(view *v, int interpolate)
   }
 
   int32_t ro = rand_on;
-  if(dev & DRAW_PEOPLE_LAYER)
+  if(use_raster)
+  {
+    g_raster_people_interp = interpolate;
+    g_raster_people_layer = (dev & DRAW_PEOPLE_LAYER) ? 1 : 0;
+    frame.call(raster_people, v);
+  }
+  else if(dev & DRAW_PEOPLE_LAYER)
   {
     if(interpolate)
       current_level->interpolate_draw_objects(v);
@@ -1045,7 +1127,8 @@ void Game::draw_map(view *v, int interpolate)
   if(!(dev & MAP_MODE))
   {
 
-    draw_panims(v);
+    if(!use_raster)
+      draw_panims(v);
 
     if(dev & DRAW_FG_LAYER && rescan)
     {
@@ -1060,16 +1143,31 @@ void Game::draw_map(view *v, int interpolate)
         if(fort_num != BLACK)
         {
           if(dev & DRAW_BG_LAYER)
-          get_fg(fort_num)->im->PutImage(main_screen, ivec2(draw_x, draw_y));
+          {
+            if(use_raster)
+              frame.put_trans(get_fg(fort_num)->im, draw_x, draw_y);
+            else
+              get_fg(fort_num)->im->PutImage(main_screen, ivec2(draw_x, draw_y));
+          }
           else
-          get_fg(fort_num)->im->PutFilled(main_screen, ivec2(draw_x, draw_y), 0);
+          {
+            if(use_raster)
+              frame.put_filled(get_fg(fort_num)->im, draw_x, draw_y, 0);
+            else
+              get_fg(fort_num)->im->PutFilled(main_screen, ivec2(draw_x, draw_y), 0);
+          }
 
           if(!(dev & EDIT_MODE))
           current_level->mark_seen(x, y);
           else
           {
-        main_screen->Line(ivec2(draw_x, draw_y), ivec2(draw_x + xinc, draw_y + yinc), wm->bright_color());
-        main_screen->Line(ivec2(draw_x + xinc, draw_y), ivec2(draw_x, draw_y + yinc), wm->bright_color());
+            if(use_raster)
+              frame.cross(draw_x, draw_y, xinc, yinc, wm->bright_color());
+            else
+            {
+              main_screen->Line(ivec2(draw_x, draw_y), ivec2(draw_x + xinc, draw_y + yinc), wm->bright_color());
+              main_screen->Line(ivec2(draw_x + xinc, draw_y), ivec2(draw_x, draw_y + yinc), wm->bright_color());
+            }
           }
         }
       }
@@ -1080,56 +1178,45 @@ void Game::draw_map(view *v, int interpolate)
 
     if(dev & DRAW_FG_BOUND_LAYER)
     {
-      int b = wm->bright_color();
-      int fg_h = current_level->foreground_height(), fg_w = current_level->foreground_width();
-
-      for(y = y1, draw_y = yo; y <= y2; y++, draw_y += yinc)
-      {
-    uint16_t *cl;
-    if(y < fg_h)
-      cl = current_level->get_fgline(y)+x1;
-    else cl = NULL;
-    for(x = x1, draw_x = xo; x <= x2; x++, draw_x += xinc, cl++)
-    {
-      if(x < fg_w && y < fg_h)
-      {
-        int fort_num = fgvalue(*cl);
-        if(fort_num != BLACK)
-        {
-          point_list *p = get_fg(fort_num)->points;
-          uint8_t *d = p->data;
-          if(p->tot)
-          {
-        for(int i = 1; i < p->tot; i++)
-        {
-          d += 2;
-          main_screen->Line(ivec2(draw_x + *(d - 2), draw_y + *(d - 1)),
-                            ivec2(draw_x + *d, draw_y + *(d + 1)), b);
-        }
-        main_screen->Line(ivec2(draw_x + *d, draw_y + *(d - 1)),
-                          ivec2(draw_x + p->data[0], draw_y + p->data[1]), b);
-          }
-        }
-      }
-    }
-      }
+      g_rb_x1 = x1;
+      g_rb_y1 = y1;
+      g_rb_x2 = x2;
+      g_rb_y2 = y2;
+      g_rb_xo = xo;
+      g_rb_yo = yo;
+      g_rb_xinc = xinc;
+      g_rb_yinc = yinc;
+      if(use_raster)
+        frame.call(raster_bounds, v);
+      else
+        raster_bounds(v);
     }
 
 //    if(!(dev & EDIT_MODE))
 //      server_check();
 
-    if(dev & DRAW_HELP_LAYER)
-        raster_help_legacy(v);
-
-    if(dev_cont) dev_cont->dev_draw(v);
-
-	//AR this is showing that annoying flashing icon in bottom-left corner, so I disabled it
-    //if(cache.in_use()) main_screen->PutImage(cache.img(vmm_image), ivec2(v->m_aa.x, v->m_bb.y - cache.img(vmm_image)->Size().y+1));
-
-    if(dev & DRAW_LIGHTS)
-        raster_light_legacy(v, xoff, yoff, old_screen, old_aa, old_bb, interpolate);
+    if(use_raster)
+    {
+      if(dev & DRAW_HELP_LAYER)
+        frame.call(raster_help_legacy, v);
+      if(dev_cont)
+        frame.call(raster_dev_draw, v);
+      if(dev & DRAW_LIGHTS)
+        frame.light(v, xoff, yoff, old_screen, old_aa, old_bb, interpolate);
+      raster_execute_legacy(frame);
+      if(!(dev & DRAW_LIGHTS))
+        main_screen->dirt_on();
+    }
     else
-      main_screen->dirt_on();
+    {
+      if(dev & DRAW_HELP_LAYER)
+        raster_help_legacy(v);
+      if(dev_cont) dev_cont->dev_draw(v);
+      if(dev & DRAW_LIGHTS)
+        raster_light_legacy(v, xoff, yoff, old_screen, old_aa, old_bb, interpolate);
+      else
+        main_screen->dirt_on();
+    }
 
 
 
@@ -1151,6 +1238,11 @@ void Game::draw_map(view *v, int interpolate)
     profile_update();
 
   sbar.draw_update();
+
+  if(g_raster_crc)
+    fprintf(stderr, "raster_crc %08x backend %d\n",
+            raster_crc_rect(main_screen, v->m_aa.x, v->m_aa.y, v->m_bb.x + 1, v->m_bb.y + 1),
+            g_raster_backend);
 }
 
 void Game::PutFg(ivec2 pos, int type)
@@ -2566,6 +2658,10 @@ int main(int argc, char *argv[])
             external_print = 1;
         if (!strcmp(argv[i], "--raster-selftest"))
             return raster_selftest();
+        if (!strcmp(argv[i], "-raster") && i + 1 < argc)
+            g_raster_backend = atoi(argv[++i]);
+        if (!strcmp(argv[i], "-raster-crc"))
+            g_raster_crc = 1;
     }
 
 #if (defined(__APPLE__) && !defined(__MACH__))

@@ -17,6 +17,12 @@ static RasterCmd blank_cmd()
     c.x2 = 0;
     c.y2 = 0;
     c.color = 0;
+    c.xoff = 0;
+    c.yoff = 0;
+    c.interpolate = 0;
+    c.old_screen = NULL;
+    c.old_aa = ivec2(0);
+    c.old_bb = ivec2(0);
     c.call = NULL;
     c.v = NULL;
     return c;
@@ -50,6 +56,16 @@ void RasterFrame::put_image(image *im, int x, int y)
     cmds.push_back(c);
 }
 
+void RasterFrame::put_trans(TransImage *im, int x, int y)
+{
+    RasterCmd c = blank_cmd();
+    c.op = ROP_PUT_TRANS;
+    c.tim = im;
+    c.x = x;
+    c.y = y;
+    cmds.push_back(c);
+}
+
 void RasterFrame::put_filled(TransImage *im, int x, int y, int color)
 {
     RasterCmd c = blank_cmd();
@@ -57,6 +73,18 @@ void RasterFrame::put_filled(TransImage *im, int x, int y, int color)
     c.tim = im;
     c.x = x;
     c.y = y;
+    c.color = color;
+    cmds.push_back(c);
+}
+
+void RasterFrame::cross(int x, int y, int xinc, int yinc, int color)
+{
+    RasterCmd c = blank_cmd();
+    c.op = ROP_CROSS;
+    c.x = x;
+    c.y = y;
+    c.x2 = xinc;
+    c.y2 = yinc;
     c.color = color;
     cmds.push_back(c);
 }
@@ -70,12 +98,22 @@ void RasterFrame::call(void (*fn)(view *), view *v)
     cmds.push_back(c);
 }
 
-void RasterFrame::light()
+void RasterFrame::light(view *v, int32_t xoff, int32_t yoff, image *old_screen, ivec2 old_aa, ivec2 old_bb, int interpolate)
 {
     RasterCmd c = blank_cmd();
     c.op = ROP_LIGHT;
+    c.v = v;
+    c.xoff = xoff;
+    c.yoff = yoff;
+    c.old_screen = old_screen;
+    c.old_aa = old_aa;
+    c.old_bb = old_bb;
+    c.interpolate = interpolate;
     cmds.push_back(c);
 }
+
+int g_raster_backend = 0;
+int g_raster_crc = 0;
 
 uint32_t raster_crc_rect(image *im, int x, int y, int x2, int y2)
 {
@@ -160,6 +198,8 @@ int raster_selftest()
     delete tile;
     delete dst_b;
     delete dst_a;
+    if (!bad)
+        fprintf(stderr, "raster_selftest ok\n");
     return bad;
 }
 
@@ -179,10 +219,18 @@ void raster_execute_legacy(RasterFrame const &f)
         case ROP_PUT_FILLED:
             c.tim->PutFilled(main_screen, ivec2(c.x, c.y), (uint8_t)c.color);
             break;
+        case ROP_PUT_TRANS:
+            c.tim->PutImage(main_screen, ivec2(c.x, c.y));
+            break;
+        case ROP_CROSS:
+            main_screen->Line(ivec2(c.x, c.y), ivec2(c.x + c.x2, c.y + c.y2), (uint8_t)c.color);
+            main_screen->Line(ivec2(c.x + c.x2, c.y), ivec2(c.x, c.y + c.y2), (uint8_t)c.color);
+            break;
         case ROP_CALL:
             c.call(c.v);
             break;
         case ROP_LIGHT:
+            raster_light_legacy(c.v, c.xoff, c.yoff, c.old_screen, c.old_aa, c.old_bb, c.interpolate);
             break;
         }
     }
