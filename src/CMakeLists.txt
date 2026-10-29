@@ -67,6 +67,7 @@ add_executable(abuse
     configuration.cpp configuration.h
     game.cpp game.h
     light.cpp light.h
+    raster/frame.cpp raster/frame.h
     devsel.cpp devsel.h
     crc.cpp crc.h
     gamma.cpp gamma.h
