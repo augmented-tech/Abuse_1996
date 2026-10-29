@@ -30,10 +30,7 @@ static void sbar_layout(int sb_w, int sb_h, int &sx, int &sy)
 {
   int bar_w = xres, bar_base = yres;
   if(g_fov_present || (settings.classic_fov && settings.in_game))
-  {
-    bar_w = 320;
-    bar_base = 200;
-  }
+    classic_present_size(bar_w, bar_base);
   sx = bar_w / 2 - sb_w / 2;
   sy = bar_base - sb_h;
 }

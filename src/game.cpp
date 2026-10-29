@@ -1725,29 +1725,46 @@ void Game::get_input()
         {
             if(ev.type == EV_KEY)
             {
-                set_key_down(ev.key, 1);
-                if(playing_state(state))
+                // Chat used to only get keys if the mouse was over the box,
+                // and F/space still fired because they stay in the keymap.
+                bool const typing = chat && chat->showing();
+                if(typing && ev.key == JK_ESC)
                 {
-                    if(ev.key < 256)
+                    chat->hide();
+                    set_key_down(JK_ESC, 0);
+                    ev.type = EV_SPURIOUS;
+                }
+                else if(typing && ev.key < 256)
+                {
+                    if(playing_state(state))
                     {
-                        if(chat && chat->chat_event(ev))
-                            base->packet.write_uint8(SCMD_CHAT_KEYPRESS);
-                        else
-                            base->packet.write_uint8(SCMD_KEYPRESS);
-                    }
-                    else
-                        base->packet.write_uint8(SCMD_EXT_KEYPRESS);
-                    base->packet.write_uint8(client_number());
-                    if(ev.key > 256)
-                        base->packet.write_uint8(ev.key - 256);
-                    else
+                        base->packet.write_uint8(SCMD_CHAT_KEYPRESS);
+                        base->packet.write_uint8(client_number());
                         base->packet.write_uint8(ev.key);
+                    }
+                    ev.type = EV_SPURIOUS;
+                }
+                else
+                {
+                    set_key_down(ev.key, 1);
+                    if(playing_state(state))
+                    {
+                        if(ev.key < 256)
+                            base->packet.write_uint8(SCMD_KEYPRESS);
+                        else
+                            base->packet.write_uint8(SCMD_EXT_KEYPRESS);
+                        base->packet.write_uint8(client_number());
+                        if(ev.key > 256)
+                            base->packet.write_uint8(ev.key - 256);
+                        else
+                            base->packet.write_uint8(ev.key);
+                    }
                 }
             }
             else if(ev.type == EV_KEYRELEASE)
             {
                 set_key_down(ev.key, 0);
-                if(playing_state(state))
+                if(playing_state(state) && !(chat && chat->showing()))
                 {
                     if(ev.key < 256)
                         base->packet.write_uint8(SCMD_KEYRELEASE);
@@ -1887,7 +1904,7 @@ void Game::get_input()
                                         break;
                                     case 'c':
                                     case 'C':
-                                        if(chatting_enabled && (!(dev & EDIT_MODE) && chat))
+                                        if(chatting_enabled && (!(dev & EDIT_MODE) && chat) && !chat->showing())
                                             chat->toggle();
                                         break;
                                     case '9':

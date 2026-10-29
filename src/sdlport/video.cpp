@@ -57,15 +57,28 @@ int g_fov_present = 0;
 
 void calculate_mouse_scaling();
 
+void classic_present_size(int &pw, int &ph)
+{
+    pw = settings.fov_w;
+    if(pw != 340 && pw != 360)
+        pw = 320;
+    if(pw > xres)
+        pw = xres;
+    if(pw < 1)
+        pw = 320;
+    ph = 200;
+    if(ph > yres)
+        ph = yres;
+    if(ph < 1)
+        ph = 200;
+}
+
 void present_src_size(int &pw, int &ph)
 {
     pw = xres;
     ph = yres;
     if(g_fov_present)
-    {
-        pw = 320;
-        ph = 200;
-    }
+        classic_present_size(pw, ph);
     if(pw < 1) pw = 1;
     if(ph < 1) ph = 1;
 }

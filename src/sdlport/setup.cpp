@@ -115,6 +115,7 @@ Settings::Settings()
 	this->hires				= 1;
 	this->render_interp		= 1.0f;
 	this->classic_fov		= 0;
+	this->fov_w				= 320;
 
 	//sound
 	this->mono				= false;	// disable stereo sound
@@ -231,8 +232,13 @@ bool Settings::CreateConfigFile(std::string file_path)
 	out << "; Use linear texture filter (nearest is default)" << std::endl;
 	out << "linear_filter=" << this->linear_filter << std::endl;
 	out << std::endl;
-	out << "; Gameplay FOV: wide = current camera, classic = original 320x200 scaled to the window" << std::endl;
-	out << "fov=" << (this->classic_fov ? "classic" : "wide") << std::endl;
+	out << "; Gameplay FOV: wide, classic (320x200), 340, or 360 (slightly wider classic)" << std::endl;
+	{
+		const char *fv = "wide";
+		if(this->classic_fov)
+			fv = (this->fov_w == 360) ? "360" : (this->fov_w == 340) ? "340" : "classic";
+		out << "fov=" << fv << std::endl;
+	}
 	out << std::endl;
 	//
 	out << "; SOUND SETTINGS" << std::endl;
@@ -404,7 +410,15 @@ bool Settings::ReadConfigFile(std::string folder)
 			for(size_t i = 0; i < v.size(); i++)
 				if(v[i] >= 'A' && v[i] <= 'Z')
 					v[i] = (char)(v[i] - 'A' + 'a');
-			this->classic_fov = (v=="classic" || v=="1") ? 1 : 0;
+			if(v=="wide" || v=="0")
+				this->classic_fov = 0;
+			else
+			{
+				this->classic_fov = 1;
+				if(v=="360") this->fov_w = 360;
+				else if(v=="340") this->fov_w = 340;
+				else this->fov_w = 320;
+			}
 		}
 
 		//sound
@@ -573,7 +587,14 @@ bool Settings::GetCvar(std::string key, std::string &value)
 	if(key=="scale")			{ snprintf(buf, sizeof(buf), "%d", (int)scale); value = buf; return true; }
 	if(key=="linear_filter")	{ value = linear_filter ? "1" : "0"; return true; }
 	if(key=="hires")			{ snprintf(buf, sizeof(buf), "%d", hires); value = buf; return true; }
-	if(key=="fov")				{ value = classic_fov ? "classic" : "wide"; return true; }
+	if(key=="fov")
+	{
+		if(!classic_fov) value = "wide";
+		else if(fov_w == 360) value = "360";
+		else if(fov_w == 340) value = "340";
+		else value = "classic";
+		return true;
+	}
 	if(key=="mono")				{ value = mono ? "1" : "0"; return true; }
 	if(key=="no_sound")			{ value = no_sound ? "1" : "0"; return true; }
 	if(key=="no_music")			{ value = no_music ? "1" : "0"; return true; }
@@ -622,17 +643,33 @@ bool Settings::SetCvar(std::string key, std::string value, std::string &reply)
 	{
 		if(v.empty() || v=="toggle")
 			classic_fov = classic_fov ? 0 : 1;
-		else if(v=="classic" || v=="1")
-			classic_fov = 1;
 		else if(v=="wide" || v=="0")
 			classic_fov = 0;
+		else if(v=="classic" || v=="320" || v=="1")
+		{
+			classic_fov = 1;
+			fov_w = 320;
+		}
+		else if(v=="340")
+		{
+			classic_fov = 1;
+			fov_w = 340;
+		}
+		else if(v=="360")
+		{
+			classic_fov = 1;
+			fov_w = 360;
+		}
 		else
 		{
-			reply = "fov classic|wide";
+			reply = "fov classic|340|360|wide";
 			return true;
 		}
 		apply_game_fov();
-		reply = classic_fov ? "fov classic" : "fov wide";
+		if(!classic_fov) reply = "fov wide";
+		else if(fov_w == 360) reply = "fov 360";
+		else if(fov_w == 340) reply = "fov 340";
+		else reply = "fov classic";
 		return true;
 	}
 	if(key=="ctr_aim")

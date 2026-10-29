@@ -370,14 +370,18 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/sfx)
         sfx/zap3.wav
     DESTINATION ${ASSETDIR}/sfx)
 
-    INSTALL(FILES
-        sfx/voice/aimsave.wav sfx/voice/ammosave.wav sfx/voice/ladder_1.wav
-        sfx/voice/ownsave.wav sfx/voice/platfo_1.wav sfx/voice/poweru_1.wav
-        sfx/voice/savesave.wav sfx/voice/spaceb_1.wav sfx/voice/spcbr1.wav
-        sfx/voice/spcbr2.wav sfx/voice/starts_1.wav sfx/voice/statio_1.wav
-        sfx/voice/switch_1.wav sfx/voice/switch_2.wav sfx/voice/telepo_1.wav
-        sfx/voice/wallss_1.wav sfx/voice/weapon_1.wav
-    DESTINATION ${ASSETDIR}/sfx/voice)
+    # Mac tutorial VO (Carly Staehlin). Optional — not original PC SFX,
+    # and the lisp that would play them stays commented out.
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/sfx/voice/aimsave.wav)
+        INSTALL(FILES
+            sfx/voice/aimsave.wav sfx/voice/ammosave.wav sfx/voice/ladder_1.wav
+            sfx/voice/ownsave.wav sfx/voice/platfo_1.wav sfx/voice/poweru_1.wav
+            sfx/voice/savesave.wav sfx/voice/spaceb_1.wav sfx/voice/spcbr1.wav
+            sfx/voice/spcbr2.wav sfx/voice/starts_1.wav sfx/voice/statio_1.wav
+            sfx/voice/switch_1.wav sfx/voice/switch_2.wav sfx/voice/telepo_1.wav
+            sfx/voice/wallss_1.wav sfx/voice/weapon_1.wav
+        DESTINATION ${ASSETDIR}/sfx/voice)
+    endif()
 
     # The rest are in the free-only repository but by missing the SFX,
     # the sound engine will be deactivated anyway. C'est la vie.

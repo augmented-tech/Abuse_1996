@@ -23,6 +23,7 @@
 #include "lisp.h"
 #include "jwindow.h"
 #include "configuration.h"
+#include "chat.h"
 
 //AR
 #include "sdlport/setup.h"
@@ -198,6 +199,11 @@ void get_movement(int player, int &x, int &y, int &b1, int &b2, int &b3, int &b4
         }
         else*/
         {
+            if( chat && chat->showing() )
+            {
+                x = y = b1 = b2 = b3 = b4 = 0;
+                return;
+            }
             if( is_pressed( key_map[player].left ) ||
                     is_pressed( key_map[player].left_2) )
                 x = -1;

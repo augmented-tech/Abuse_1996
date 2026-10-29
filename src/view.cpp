@@ -99,7 +99,7 @@ static bool ar_console_command(std::string text, std::string &reply)
 	{
 		if(chat)
 		{
-			chat->put_all("stick aim ring fov soundfont");
+			chat->put_all("stick aim ring fov classic|340|360|wide");
 			chat->put_all("get/set/save/cvars  status");
 			chat->put_all("cheats: god giveall bullettime");
 		}
@@ -109,10 +109,13 @@ static bool ar_console_command(std::string text, std::string &reply)
 	if(cmd == "status")
 	{
 		char buf[60];
+		const char *fovn = "wide";
+		if(settings.classic_fov)
+			fovn = (settings.fov_w == 360) ? "360" : (settings.fov_w == 340) ? "340" : "classic";
 		snprintf(buf, sizeof(buf), "stick=%s aim=%s fov=%s %dx%d",
 			settings.ctr_stick_aim == 0 ? "classic" : "modern",
 			settings.ctr_aim ? "on" : "off",
-			settings.classic_fov ? "classic" : "wide", xres, yres);
+			fovn, xres, yres);
 		reply = buf;
 		return true;
 	}
@@ -222,7 +225,7 @@ static bool ar_console_command(std::string text, std::string &reply)
 		if(chat)
 		{
 			chat->put_all("get KEY  set KEY VAL  save");
-			chat->put_all("fov stick aim ring soundfont");
+			chat->put_all("fov classic|340|360|wide");
 		}
 		reply = "also: volume_sound volume_music";
 		return true;
@@ -1022,13 +1025,15 @@ void recalc_local_view_space()   // calculates view areas for local players, sho
 {
   if (settings.classic_fov)
   {
+    int cw, ch;
+    classic_present_size(cw, ch);
     for (view *f=player_list; f; f=f->next)
     {
       if (!f->local_player())
         continue;
       int hud = total_weapons ? 33 : 0;
       f->m_aa = ivec2(0, 0);
-      f->m_bb = ivec2(319, 199 - hud);
+      f->m_bb = ivec2(cw - 1, ch - 1 - hud);
       if (f->m_bb.y < 40)
         f->m_bb.y = 40;
       f->suggest.send_view = 0;

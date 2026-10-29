@@ -31,12 +31,54 @@
 #include "dev.h"
 #include "id.h"
 #include "demo.h"
+#include "video.h"
 
 //AR
 #include "sdlport/setup.h"
 extern Settings settings;
 extern int get_key_binding( char const *dir, int i );
 //
+
+// Classic FOV presents only the top-left 320x200 of a 640x400 buffer.
+// Save/load windows were centered on xres/yres, so the slot grid sat
+// mostly below the crop (title letters only). Center on the visible area.
+static void center_windows_in_view(Jwindow *a, Jwindow *b)
+{
+    if(!a)
+        return;
+
+    int vw = xres, vh = yres;
+    present_src_size(vw, vh);
+    if(vw < 1) vw = xres;
+    if(vh < 1) vh = yres;
+
+    int x1 = a->m_pos.x;
+    int y1 = a->m_pos.y;
+    int x2 = a->m_pos.x + a->m_size.x;
+    int y2 = a->m_pos.y + a->m_size.y;
+    if(b)
+    {
+        if(b->m_pos.x < x1) x1 = b->m_pos.x;
+        if(b->m_pos.y < y1) y1 = b->m_pos.y;
+        if(b->m_pos.x + b->m_size.x > x2) x2 = b->m_pos.x + b->m_size.x;
+        if(b->m_pos.y + b->m_size.y > y2) y2 = b->m_pos.y + b->m_size.y;
+    }
+
+    int tw = x2 - x1;
+    int th = y2 - y1;
+    int nx = (vw - tw) / 2;
+    int ny = (vh - th) / 2;
+    if(nx < 0) nx = 0;
+    if(ny < 0) ny = 0;
+    int dx = nx - x1;
+    int dy = ny - y1;
+    if(dx || dy)
+    {
+        wm->move_window(a, a->m_pos.x + dx, a->m_pos.y + dy);
+        if(b)
+            wm->move_window(b, b->m_pos.x + dx, b->m_pos.y + dy);
+    }
+}
 
 extern void *save_order;         // load from "saveordr.lsp", contains a list ordering the save games
 
@@ -120,6 +162,7 @@ int get_save_spot()
   if(mx < 0) mx = 0;
 
   Jwindow *l_win=create_num_window(mx,MAX_SAVE_GAMES,MAX_SAVE_LINES,NULL);
+  center_windows_in_view(l_win, NULL);
   Event ev;
   int got_level=0;
   int quit=0;
@@ -247,6 +290,7 @@ int load_game(int show_all, char const *title)   // return 0 if the player escap
     // Create thumbnail window 5 pixels to the right of the list window
     Jwindow *l_win = create_num_window(0,total_saved,MAX_SAVE_LINES,thumbnails);
     Jwindow *preview = wm->CreateWindow(l_win->m_pos + ivec2(l_win->m_size.x + 5, 0), ivec2(max_w, max_h), NULL, title);
+    center_windows_in_view(l_win, preview);
 
     preview->m_surf->PutImage(first, ivec2(preview->x1(), preview->y1()));
 

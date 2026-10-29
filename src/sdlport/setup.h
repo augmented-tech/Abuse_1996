@@ -27,7 +27,8 @@ public:
 	bool	linear_filter;	//"antialias"
 	int		hires;			//enable hires screens and icons
 	float	render_interp;	// 0..1 blend between last and current physics tick
-	int		classic_fov;	// 1 = original 320x200 camera, integer-scaled to the window
+	int		classic_fov;	// 1 = cropped camera, integer-scaled to the window
+	int		fov_w;			// classic present width: 320 (original), 340, or 360
 
 	//sound
 	bool	mono;
