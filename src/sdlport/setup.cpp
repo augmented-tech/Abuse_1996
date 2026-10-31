@@ -116,6 +116,8 @@ Settings::Settings()
 	this->render_interp		= 1.0f;
 	this->classic_fov		= 0;
 	this->fov_w				= 320;
+	this->enhance_lift_light = 0;
+	this->enhance_save_light = 0;
 
 	//sound
 	this->mono				= false;	// disable stereo sound
@@ -159,7 +161,8 @@ Settings::Settings()
 	this->bt		= key_value("CTRL_L");	//special2, bulettime
 
 	//controller settings
-	this->ctr_aim			= true;		// analog aim / stick move when a pad is present
+	this->ctr_aim			= false;	// pad aim only while pad mode is on
+	this->pad_mode			= 0;
 	this->ctr_stick_aim		= 1;		// modern 60 Hz latch; set classic to revert to 2016 ring
 	this->ctr_aim_correctx	= 0;
 	this->ctr_cd			= 100;
@@ -169,6 +172,8 @@ Settings::Settings()
 	this->ctr_lst_dzy		= 25000;	// up/jump, down/use
 	this->ctr_aim_x			= 0;
 	this->ctr_aim_y			= 0;
+	this->ctr_lst_x			= 0;
+	this->ctr_lst_y			= 0;
 	this->ctr_aim_latched	= false;
 	this->ctr_aim_angle		= 0;
 	this->ctr_mouse_x		= 0;
@@ -303,6 +308,9 @@ bool Settings::CreateConfigFile(std::string file_path)
 	//
 	out << "; CONTROLLER SETTINGS" << std::endl;
 	out << std::endl;
+	out << "; Pad mode: on = DualSense/Xbox drives play and menus (F8 toggles, saved)" << std::endl;
+	out << "pad=" << (this->pad_mode ? "on" : "off") << std::endl;
+	out << std::endl;
 	out << "; Enable aiming" << std::endl;
 	out << "ctr_aim=" << this->ctr_aim << std::endl;
 	out << std::endl;
@@ -420,6 +428,8 @@ bool Settings::ReadConfigFile(std::string folder)
 				else this->fov_w = 320;
 			}
 		}
+		else if(attr=="lift_light")	this->enhance_lift_light = AR_ToBool(value);
+		else if(attr=="save_light")	this->enhance_save_light = AR_ToBool(value);
 
 		//sound
 		else if(attr=="mono")			this->mono = AR_ToBool(value);
@@ -497,6 +507,21 @@ bool Settings::ReadConfigFile(std::string folder)
 		
 		//controller settings
 		else if(attr=="ctr_aim")		this->ctr_aim = AR_ToBool(value);
+		else if(attr=="pad")
+		{
+			std::string v = value;
+			for(size_t i = 0; i < v.size(); i++)
+				if(v[i] >= 'A' && v[i] <= 'Z')
+					v[i] = (char)(v[i] - 'A' + 'a');
+			this->pad_mode = (v=="on" || v=="1") ? 1 : 0;
+			if(this->pad_mode)
+			{
+				this->ctr_aim = true;
+				this->ctr_stick_aim = 1;
+			}
+			else
+				this->ctr_aim = false;
+		}
 		else if(attr=="ctr_stick_aim")
 		{
 			saw_ctr_stick_aim = true;
@@ -595,6 +620,16 @@ bool Settings::GetCvar(std::string key, std::string &value)
 		else value = "classic";
 		return true;
 	}
+	if(key=="lift_light")
+	{
+		value = enhance_lift_light ? "on" : "off";
+		return true;
+	}
+	if(key=="save_light")
+	{
+		value = enhance_save_light ? "on" : "off";
+		return true;
+	}
 	if(key=="mono")				{ value = mono ? "1" : "0"; return true; }
 	if(key=="no_sound")			{ value = no_sound ? "1" : "0"; return true; }
 	if(key=="no_music")			{ value = no_music ? "1" : "0"; return true; }
@@ -608,6 +643,7 @@ bool Settings::GetCvar(std::string key, std::string &value)
 	if(key=="mouse_scale")		{ snprintf(buf, sizeof(buf), "%d", (int)mouse_scale); value = buf; return true; }
 	if(key=="big_font")			{ value = big_font ? "1" : "0"; return true; }
 	if(key=="ctr_aim")			{ value = ctr_aim ? "1" : "0"; return true; }
+	if(key=="pad")				{ value = pad_mode ? "on" : "off"; return true; }
 	if(key=="ctr_stick_aim")	{ value = ctr_stick_aim == 0 ? "classic" : "modern"; return true; }
 	if(key=="ctr_aim_x")		{ snprintf(buf, sizeof(buf), "%d", ctr_aim_correctx); value = buf; return true; }
 	if(key=="ctr_cd")			{ snprintf(buf, sizeof(buf), "%d", ctr_cd); value = buf; return true; }
@@ -670,6 +706,56 @@ bool Settings::SetCvar(std::string key, std::string value, std::string &reply)
 		else if(fov_w == 360) reply = "fov 360";
 		else if(fov_w == 340) reply = "fov 340";
 		else reply = "fov classic";
+		return true;
+	}
+	if(key=="lift_light")
+	{
+		if(v.empty() || v=="toggle")
+			enhance_lift_light = enhance_lift_light ? 0 : 1;
+		else if(v=="on" || v=="1")
+			enhance_lift_light = 1;
+		else if(v=="off" || v=="0")
+			enhance_lift_light = 0;
+		else
+		{
+			reply = "lift_light on|off";
+			return true;
+		}
+		reply = enhance_lift_light ? "enhance lift light on" : "enhance lift light off";
+		return true;
+	}
+	if(key=="save_light")
+	{
+		if(v.empty() || v=="toggle")
+			enhance_save_light = enhance_save_light ? 0 : 1;
+		else if(v=="on" || v=="1")
+			enhance_save_light = 1;
+		else if(v=="off" || v=="0")
+			enhance_save_light = 0;
+		else
+		{
+			reply = "save_light on|off";
+			return true;
+		}
+		reply = enhance_save_light ? "enhance save light on" : "enhance save light off";
+		return true;
+	}
+	if(key=="pad")
+	{
+		int on;
+		if(v.empty() || v=="toggle")
+			on = pad_mode ? 0 : 1;
+		else if(v=="on" || v=="1")
+			on = 1;
+		else if(v=="off" || v=="0")
+			on = 0;
+		else
+		{
+			reply = "pad on|off";
+			return true;
+		}
+		settings_set_pad_mode(on);
+		reply = pad_mode ? "pad on" : "pad off";
 		return true;
 	}
 	if(key=="ctr_aim")
@@ -778,7 +864,7 @@ bool Settings::WriteConfigFile()
 	}
 
 	const char *keys[] = {
-		"fov", "soundfont", "ctr_aim", "ctr_stick_aim", "ctr_cd",
+		"fov", "lift_light", "save_light", "pad", "soundfont", "ctr_aim", "ctr_stick_aim", "ctr_cd",
 		"ctr_rst_s", "ctr_rst_dz", "ctr_lst_dzx", "ctr_lst_dzy",
 		"volume_sound", "volume_music", "linear_filter", "grab_input",
 		"no_music", "no_sound", "scale", "mouse_scale",
@@ -1085,4 +1171,19 @@ std::string get_ctr_binding(std::string c)
 	else if(c=="ctr_rtg")	return settings.ctr_rtg;
 	
 	return "";
+}
+
+void settings_set_pad_mode(int on)
+{
+	settings.pad_mode = on ? 1 : 0;
+	if(settings.pad_mode)
+	{
+		settings.ctr_aim = true;
+		settings.ctr_stick_aim = 1;
+	}
+	else
+		settings.ctr_aim = false;
+	settings.reset_stick_aim();
+	release_controller_move_keys();
+	settings.WriteConfigFile();
 }

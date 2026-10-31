@@ -62,8 +62,8 @@ Compared to antrad's 2016 SDL2 port:
   * Live **FOV**: `fov classic` (320×200, original secrets), `340`, `360`, or `wide`
   * Save-station **slot grid fully visible** in classic FOV
   * Console **`c`** grabs typing (keys no longer fire Nick); `get` / `set` / `save` for `config.txt` cvars
-  * **Xbox / DualSense**: move and jump; stick aim `classic` (2016 15 Hz ring) or `modern` (60 Hz latch)
-  * **F8** toggles controller aim without killing walk
+  * **Pad mode** (`F8` or `pad on` / `pad off`): hard switch — DualSense/Xbox drives play and menus, keyboard+mouse do not. Saved in `config.txt`. Press any controller button on the title screen to turn it on; you do not have to start a game first.
+  * **Xbox / DualSense** (pad on): left stick walk, right stick aim, Cross jump, Circle special, D-pad/stick down uses lifts and save stations, L1/R1 weapons, R2 fire. Stick aim `classic` (2016 15 Hz ring) or `modern` (60 Hz latch).
   * **WASD**, Space to fire, 1–7 weapons, plus original mouse aim
   * **MIDI music** via a SoundFont (place `soundfont.sf2` in `~/Library/Application Support/abuse/user/`, e.g. FluidR3 GM)
   * F10 fullscreen, F11/F12 scale, vsync
@@ -97,6 +97,7 @@ there too). Elsewhere it is the local "user" folder as "config.txt".
 Useful cvars (console `c`, then `set <name> <value>` and `save`):
 
 - fov - classic | 340 | 360 | wide
+- pad - on | off (F8; DualSense/Xbox vs keyboard+mouse)
 - ctr_stick_aim - classic | modern
 - soundfont - auto, or a path to a .sf2 file
 
@@ -195,19 +196,26 @@ There are several keys in the game that are hardcoded to some function originall
 - F5 - quick save on save consoles (1 or "save0001.spe" is the dedicated quick save slot)
 - F6 - toggle window input grab
 - F7 - toggle mouse scale type
-- F8 - toggle controller aim (walk/jump stay on)
+- F8 - toggle pad mode (controller vs keyboard+mouse; works on the title screen)
 - F9 - quick load
 - F10 - toggle window/fullscreen mode
 - F11 - scale window/screen up
 - F12 - scale window/screen down
 - print screen - take a screenshot
 
-Controller defaults:
+Controller defaults (pad mode on, DualSense / Xbox):
 
-- D-pad, left stick - move left, right, up, down in game and in menus
-- home - show help/controls screen
-- back - behaves like the escape key
-- start - behaves like enter key
+- D-pad, left stick - move; stick up jumps; down uses lifts / save stations
+- Right stick - aim
+- Cross / A - jump (in menus: click)
+- Circle / B - special (in menus: back)
+- L1 / R1 - previous / next weapon
+- R2 - fire
+- L2 - special (same as Circle)
+- Share / Back - escape
+- Options / Start - enter
+- PS / Guide - help
+- First controller button on the title screen turns pad mode on and saves it
 
 ## 5. BUILDING THE PROJECT
 
@@ -238,8 +246,9 @@ OpenCV is only needed for abuse-tool. See BUILDING.md for the older SDL/OpenGL n
 		- 960x540 with scale set to 2
 
 ###### Using cheat/chat console:
-	The mouse cursor must be inside the console window to be able to get input, because windows in the engine are only active then.
-	Press enter/return when the console is clear, or type "quit" or "exit" to close the console window.
+	Press `c` in play. Classic FOV switches to wide while the console is open so the text is readable, then returns when you close it.
+	Type `get` / `set` / `save` for config cvars, or cheats (`god`, `giveall`, …).
+	Press enter on an empty line, or type "quit" or "exit", to close the console. Esc also closes it.
 
 ###### Quick save/load:
 	Save slot 1 or "save0001.spe" is the dedicated quick save slot. Quick load always loads the last save game, so if you start a new level or

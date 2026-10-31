@@ -15,8 +15,15 @@ enum RasterOp : uint8_t {
     ROP_CALL,
     ROP_LIGHT,
     ROP_PUT_TRANS,
-    ROP_CROSS
+    ROP_CROSS,
+    ROP_OBJECT,
+    ROP_PARTICLE,
+    ROP_LIFT_LAMP,
+    ROP_SAVE_LAMP
 };
+
+class game_object;
+class part_frame;
 
 struct RasterCmd {
     RasterOp op;
@@ -30,6 +37,9 @@ struct RasterCmd {
     ivec2 old_aa, old_bb;
     void (*call)(view *);
     view *v;
+    game_object *obj;
+    part_frame *pf;
+    int dir;
 };
 
 struct RasterFrame {
@@ -41,6 +51,10 @@ struct RasterFrame {
     void put_filled(TransImage *im, int x, int y, int color);
     void cross(int x, int y, int xinc, int yinc, int color);
     void call(void (*fn)(view *), view *v);
+    void object(game_object *o);
+    void particle(part_frame *pf, int x, int y, int dir);
+    void lift_lamp(game_object *o);
+    void save_lamp(game_object *o, view *v);
     void light(view *v, int32_t xoff, int32_t yoff, image *old_screen, ivec2 old_aa, ivec2 old_bb, int interpolate);
 };
 
@@ -53,5 +67,7 @@ extern int g_raster_crc;
 
 void raster_light_legacy(view *v, int32_t xoff, int32_t yoff, image *old_screen, ivec2 old_aa, ivec2 old_bb, int interpolate);
 void raster_help_legacy(view *v);
+void raster_lift_lamp(game_object *o);
+void raster_save_lamp(game_object *o, view *v);
 
 #endif

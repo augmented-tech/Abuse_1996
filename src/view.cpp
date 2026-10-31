@@ -94,12 +94,19 @@ static bool ar_console_command(std::string text, std::string &reply)
 			arg.erase(arg.size() - 1, 1);
 	}
 	cmd = ar_lower_copy(cmd);
+	{
+		std::string flat;
+		for(size_t i = 0; i < cmd.size(); i++)
+			if(cmd[i] != '_' && cmd[i] != '-')
+				flat.push_back(cmd[i]);
+		cmd = flat;
+	}
 
 	if(cmd == "help" || cmd == "?")
 	{
 		if(chat)
 		{
-			chat->put_all("stick aim ring fov classic|340|360|wide");
+			chat->put_all("stick aim ring fov liftlight savelight pad");
 			chat->put_all("get/set/save/cvars  status");
 			chat->put_all("cheats: god giveall bullettime");
 		}
@@ -182,6 +189,21 @@ static bool ar_console_command(std::string text, std::string &reply)
 		settings.SetCvar("fov", arg.empty() ? "toggle" : arg, reply);
 		return true;
 	}
+	if(cmd == "liftlight")
+	{
+		settings.SetCvar("lift_light", arg.empty() ? "toggle" : arg, reply);
+		return true;
+	}
+	if(cmd == "savelight")
+	{
+		settings.SetCvar("save_light", arg.empty() ? "toggle" : arg, reply);
+		return true;
+	}
+	if(cmd == "pad")
+	{
+		settings.SetCvar("pad", arg.empty() ? "toggle" : arg, reply);
+		return true;
+	}
 	if(cmd == "get")
 	{
 		if(arg.empty())
@@ -226,6 +248,8 @@ static bool ar_console_command(std::string text, std::string &reply)
 		{
 			chat->put_all("get KEY  set KEY VAL  save");
 			chat->put_all("fov classic|340|360|wide");
+			chat->put_all("liftlight on|off  (enhance lift light)");
+			chat->put_all("pad on|off  (controller, F8)");
 		}
 		reply = "also: volume_sound volume_music";
 		return true;
@@ -598,10 +622,13 @@ void view::get_input()
         if( m_focus )
         {
             sug_p = the_game->MouseToGame(last_demo_mpos);
-            if(last_demo_mbut & 1)
-                sug_b2 = 1;
-            if(last_demo_mbut & 2)
-                sug_b1 = 1;
+            if(!settings.pad_mode)
+            {
+                if(last_demo_mbut & 1)
+                    sug_b2 = 1;
+                if(last_demo_mbut & 2)
+                    sug_b1 = 1;
+            }
         }
     }
 

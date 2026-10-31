@@ -83,6 +83,23 @@ void present_src_size(int &pw, int &ph)
     if(ph < 1) ph = 1;
 }
 
+void visible_canvas_size(int &w, int &h)
+{
+    w = xres;
+    h = yres;
+    if(g_fov_present)
+        classic_present_size(w, h);
+    if(w < 1) w = 1;
+    if(h < 1) h = 1;
+}
+
+ivec2 visible_center(ivec2 size)
+{
+    int w, h;
+    visible_canvas_size(w, h);
+    return ivec2((w - size.x) / 2, (h - size.y) / 2);
+}
+
 void video_set_linear_filter(bool on)
 {
     settings.linear_filter = on;

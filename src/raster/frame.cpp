@@ -3,6 +3,9 @@
 #endif
 
 #include "frame.h"
+#include "light.h"
+#include "objects.h"
+#include "particle.h"
 #include "video.h"
 #include <cstring>
 
@@ -25,6 +28,9 @@ static RasterCmd blank_cmd()
     c.old_bb = ivec2(0);
     c.call = NULL;
     c.v = NULL;
+    c.obj = NULL;
+    c.pf = NULL;
+    c.dir = 0;
     return c;
 }
 
@@ -98,6 +104,42 @@ void RasterFrame::call(void (*fn)(view *), view *v)
     cmds.push_back(c);
 }
 
+void RasterFrame::object(game_object *o)
+{
+    RasterCmd c = blank_cmd();
+    c.op = ROP_OBJECT;
+    c.obj = o;
+    cmds.push_back(c);
+}
+
+void RasterFrame::particle(part_frame *pf, int x, int y, int dir)
+{
+    RasterCmd c = blank_cmd();
+    c.op = ROP_PARTICLE;
+    c.pf = pf;
+    c.x = x;
+    c.y = y;
+    c.dir = dir;
+    cmds.push_back(c);
+}
+
+void RasterFrame::lift_lamp(game_object *o)
+{
+    RasterCmd c = blank_cmd();
+    c.op = ROP_LIFT_LAMP;
+    c.obj = o;
+    cmds.push_back(c);
+}
+
+void RasterFrame::save_lamp(game_object *o, view *v)
+{
+    RasterCmd c = blank_cmd();
+    c.op = ROP_SAVE_LAMP;
+    c.obj = o;
+    c.v = v;
+    cmds.push_back(c);
+}
+
 void RasterFrame::light(view *v, int32_t xoff, int32_t yoff, image *old_screen, ivec2 old_aa, ivec2 old_bb, int interpolate)
 {
     RasterCmd c = blank_cmd();
@@ -112,7 +154,7 @@ void RasterFrame::light(view *v, int32_t xoff, int32_t yoff, image *old_screen, 
     cmds.push_back(c);
 }
 
-int g_raster_backend = 0;
+int g_raster_backend = 1;
 int g_raster_crc = 0;
 
 uint32_t raster_crc_rect(image *im, int x, int y, int x2, int y2)
@@ -148,6 +190,9 @@ static int rows_differ(image *a, image *b)
 
 int raster_selftest()
 {
+    if (light_cache_selftest())
+        return 1;
+
     image *dst_a = new image(ivec2(32, 32));
     image *dst_b = new image(ivec2(32, 32));
     image *tile = new image(ivec2(8, 8));
@@ -228,6 +273,18 @@ void raster_execute_legacy(RasterFrame const &f)
             break;
         case ROP_CALL:
             c.call(c.v);
+            break;
+        case ROP_OBJECT:
+            c.obj->draw();
+            break;
+        case ROP_PARTICLE:
+            c.pf->draw(main_screen, c.x, c.y, c.dir);
+            break;
+        case ROP_LIFT_LAMP:
+            raster_lift_lamp(c.obj);
+            break;
+        case ROP_SAVE_LAMP:
+            raster_save_lamp(c.obj, c.v);
             break;
         case ROP_LIGHT:
             raster_light_legacy(c.v, c.xoff, c.yoff, c.old_screen, c.old_aa, c.old_bb, c.interpolate);

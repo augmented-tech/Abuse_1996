@@ -20,6 +20,7 @@ int defun_pseq(void *args);
 void add_panim(int id, long x, long y, int dir);
 void delete_panims();      // called by ~level
 void draw_panims(view *v);
+void record_panims(class RasterFrame *frame);
 void tick_panims();
 void free_pframes();
 void ScatterLine(ivec2 p1, ivec2 p2, int c, int s);

@@ -13,6 +13,7 @@
 #endif
 
 #include <stdlib.h>
+#include <cstring>
 
 #include "common.h"
 
@@ -374,13 +375,115 @@ void calc_light_table(palette *pal)
 }
 
 
+struct LpBlock
+{
+  LpBlock *next;
+  size_t used, cap;
+  uint8_t data[1];
+};
+
+static LpBlock *lp_blocks = NULL;
+static int lp_arena_on = 0;
+
+static int ptr_in_light_arena(void const *p)
+{
+  for (LpBlock *b = lp_blocks; b; b = b->next)
+  {
+    if ((uint8_t const *)p >= b->data && (uint8_t const *)p < b->data + b->cap)
+      return 1;
+  }
+  return 0;
+}
+
+static void *lp_alloc(size_t n)
+{
+  n = (n + 15u) & ~15u;
+  if (!lp_blocks || lp_blocks->used + n > lp_blocks->cap)
+  {
+    size_t cap = 1u << 20;
+    if (n > cap)
+      cap = n;
+    LpBlock *b = (LpBlock *)malloc(sizeof(LpBlock) + cap);
+    b->next = lp_blocks;
+    b->used = 0;
+    b->cap = cap;
+    lp_blocks = b;
+  }
+  void *p = lp_blocks->data + lp_blocks->used;
+  lp_blocks->used += n;
+  return p;
+}
+
+static void lp_arena_begin()
+{
+  lp_arena_on = 1;
+  if (!lp_blocks)
+    return;
+  LpBlock *keep = lp_blocks;
+  LpBlock *b = keep->next;
+  keep->next = NULL;
+  keep->used = 0;
+  while (b)
+  {
+    LpBlock *n = b->next;
+    if (b->cap > keep->cap)
+    {
+      free(keep);
+      keep = b;
+      keep->next = NULL;
+      keep->used = 0;
+    }
+    else
+      free(b);
+    b = n;
+  }
+  lp_blocks = keep;
+}
+
+static void *lights_alloc(size_t bytes)
+{
+  if (lp_arena_on)
+    return lp_alloc(bytes);
+  return malloc(bytes);
+}
+
+static void *lights_grow(void *oldp, size_t old_bytes, size_t new_bytes)
+{
+  if (!lp_arena_on)
+    return realloc(oldp, new_bytes);
+  void *n = lp_alloc(new_bytes);
+  if (oldp && old_bytes)
+    memcpy(n, oldp, old_bytes);
+  return n;
+}
+
+light_patch::~light_patch()
+{
+  if (total && lights && !ptr_in_light_arena(lights))
+    free(lights);
+}
+
+void *light_patch::operator new(size_t n)
+{
+  if (lp_arena_on)
+    return lp_alloc(n);
+  return ::operator new(n);
+}
+
+void light_patch::operator delete(void *p)
+{
+  if (ptr_in_light_arena(p))
+    return;
+  ::operator delete(p);
+}
+
 light_patch *light_patch::copy(light_patch *Next)
 {
   light_patch *p=new light_patch(x1,y1,x2,y2,Next);
   p->total=total;
   if (total)
   {
-    p->lights=(light_source **)malloc(total*sizeof(light_source *));
+    p->lights=(light_source **)lights_alloc(total*sizeof(light_source *));
     memcpy(p->lights,lights,total*(sizeof(light_source *)));
   }
   else
@@ -464,7 +567,7 @@ void add_light(light_patch *&first, int32_t x1, int32_t y1, int32_t x2, int32_t 
 
 
       p->total++;
-      p->lights=(light_source **)realloc(p->lights,sizeof(light_source *)*p->total);
+      p->lights=(light_source **)lights_grow(p->lights,sizeof(light_source *)*(p->total-1),sizeof(light_source *)*p->total);
       p->lights[p->total-1]=who;
       return ;
     }
@@ -482,7 +585,7 @@ void add_light(light_patch *&first, int32_t x1, int32_t y1, int32_t x2, int32_t 
         add_light(first,p->x1,p->y2+1,p->x2,y2,who);
       if (p->total==MAX_LP)  return ;
       p->total++;
-      p->lights=(light_source **)realloc(p->lights,sizeof(light_source *)*p->total);
+      p->lights=(light_source **)lights_grow(p->lights,sizeof(light_source *)*(p->total-1),sizeof(light_source *)*p->total);
       p->lights[p->total-1]=who;
       return ;
     }
@@ -750,6 +853,130 @@ inline void put_8line(uint8_t *in_line, uint8_t *out_line, uint8_t *remap, uint8
 }
 
 
+static int g_use_light_cache = 1;
+
+struct LightSig
+{
+  int32_t x, y, x1, y1, x2, y2;
+  int32_t type, inner_radius, outer_radius, mul_div, xshift, yshift;
+};
+
+static LightSig g_sig[256];
+static int g_sig_n = 0;
+static int g_sig_ok = 0;
+static int32_t g_sig_sx, g_sig_sy, g_sig_w, g_sig_h, g_sig_ax, g_sig_ay;
+static uint16_t g_sig_ambient;
+static int g_sig_min;
+static uint8_t *g_levels = NULL;
+static int g_levels_cap = 0;
+
+static int light_sig_equal(LightSig const &a, light_source const *l)
+{
+  return a.x == l->x && a.y == l->y && a.x1 == l->x1 && a.y1 == l->y1
+      && a.x2 == l->x2 && a.y2 == l->y2 && a.type == l->type
+      && a.inner_radius == l->inner_radius && a.outer_radius == l->outer_radius
+      && a.mul_div == l->mul_div && a.xshift == l->xshift && a.yshift == l->yshift;
+}
+
+static int light_sig_match(int ax, int ay, int width, int height, int32_t screenx, int32_t screeny, uint16_t ambient)
+{
+  if (!g_use_light_cache || !g_sig_ok)
+    return 0;
+  if (g_sig_sx != screenx || g_sig_sy != screeny || g_sig_w != width || g_sig_h != height)
+    return 0;
+  if (g_sig_ax != ax || g_sig_ay != ay || g_sig_ambient != ambient || g_sig_min != min_light_level)
+    return 0;
+  int n = 0;
+  for (light_source *l = first_light_source; l; l = l->next)
+  {
+    if (n >= 256 || n >= g_sig_n || !light_sig_equal(g_sig[n], l))
+      return 0;
+    n++;
+  }
+  return n == g_sig_n;
+}
+
+static void light_sig_store(int ax, int ay, int width, int height, int32_t screenx, int32_t screeny, uint16_t ambient)
+{
+  int n = 0;
+  for (light_source *l = first_light_source; l; l = l->next)
+  {
+    if (n >= 256)
+    {
+      g_sig_ok = 0;
+      return;
+    }
+    LightSig &a = g_sig[n++];
+    a.x = l->x; a.y = l->y; a.x1 = l->x1; a.y1 = l->y1; a.x2 = l->x2; a.y2 = l->y2;
+    a.type = l->type; a.inner_radius = l->inner_radius; a.outer_radius = l->outer_radius;
+    a.mul_div = l->mul_div; a.xshift = l->xshift; a.yshift = l->yshift;
+  }
+  g_sig_n = n;
+  g_sig_sx = screenx; g_sig_sy = screeny; g_sig_w = width; g_sig_h = height;
+  g_sig_ax = ax; g_sig_ay = ay; g_sig_ambient = ambient; g_sig_min = min_light_level;
+  g_sig_ok = 1;
+}
+
+static void apply_light_levels(int ax, int ay, int width, int height, uint8_t *levels, uint8_t *light_lookup)
+{
+  main_screen->Lock();
+  int scr_w = main_screen->Size().x;
+  uint8_t *screen_line = main_screen->scan_line(ay) + ax;
+  uint8_t *lev = levels;
+  for (int y = 0; y < height; y++)
+  {
+    uint8_t *addr = screen_line;
+    for (int x = 0; x < width; x++, addr++, lev++)
+    {
+      uint8_t *off = light_lookup + (((int32_t)*lev) << 8);
+      *addr = off[*addr];
+    }
+    screen_line += scr_w;
+  }
+  main_screen->Unlock();
+}
+
+static void light_screen_interp(int ax, int ay, int width, int height, int32_t screenx, int32_t screeny, uint8_t *light_lookup, uint16_t ambient)
+{
+  int pixels = width * height;
+  if (g_levels_cap < pixels)
+  {
+    g_levels_cap = pixels;
+    g_levels = (uint8_t *)realloc(g_levels, g_levels_cap);
+  }
+
+  if (!light_sig_match(ax, ay, width, height, screenx, screeny, ambient))
+  {
+    lp_arena_begin();
+    light_patch *first = make_patch_list(width, height, screenx, screeny);
+    light_patch *rowf = first;
+    uint8_t *lev = g_levels;
+    for (int y = 0; y < height; y++)
+    {
+      while (rowf->next && rowf->y2 < y)
+        rowf = rowf->next;
+      light_patch *lp = rowf;
+      int wy = y + screeny;
+      for (int x = 0; x < width; x++, lev++)
+      {
+        for (; lp && (lp->y1 > y || lp->y2 < y || lp->x1 > x || lp->x2 < x); lp = lp->next)
+          ;
+        if (!lp)
+          lp = rowf;
+        *lev = (uint8_t)calc_light_value(lp, x + screenx, wy);
+      }
+    }
+    delete_patch_list(first);
+    lp_arena_on = 0;
+    if (g_use_light_cache)
+      light_sig_store(ax, ay, width, height, screenx, screeny, ambient);
+    else
+      g_sig_ok = 0;
+  }
+
+  apply_light_levels(ax, ay, width, height, g_levels, light_lookup);
+}
+
 void light_screen(image *sc, int32_t screenx, int32_t screeny, uint8_t *light_lookup, uint16_t ambient)
 {
   int lx_run=0,ly_run;                     // light block x & y run size in pixels ==  (1<<lx_run)
@@ -786,40 +1013,7 @@ void light_screen(image *sc, int32_t screenx, int32_t screeny, uint8_t *light_lo
     int width = cbb.x - caa.x;
     int height = cbb.y - caa.y;
     if (width > 0 && height > 0)
-    {
-      light_patch *first = make_patch_list(width, height, screenx, screeny);
-      uint8_t *remap_line = (uint8_t *)malloc(width);
-      main_screen->Lock();
-      int scr_w = main_screen->Size().x;
-      uint8_t *screen_line = main_screen->scan_line(caa.y) + caa.x;
-      light_patch *rowf = first;
-      for (int y = 0; y < height; y++)
-      {
-        while (rowf->next && rowf->y2 < y)
-          rowf = rowf->next;
-        light_patch *lp = rowf;
-        int wy = y + screeny;
-        for (int x = 0; x < width; x++)
-        {
-          for (; lp && (lp->y1 > y || lp->y2 < y || lp->x1 > x || lp->x2 < x); lp = lp->next)
-            ;
-          if (!lp)
-            lp = rowf;
-          remap_line[x] = (uint8_t)calc_light_value(lp, x + screenx, wy);
-        }
-        uint8_t *addr = screen_line;
-        uint8_t *rem = remap_line;
-        for (int x = 0; x < width; x++, addr++, rem++)
-        {
-          uint8_t *off = light_lookup + (((int32_t)*rem) << 8);
-          *addr = off[*addr];
-        }
-        screen_line += scr_w;
-      }
-      main_screen->Unlock();
-      delete_patch_list(first);
-      free(remap_line);
-    }
+      light_screen_interp(caa.x, caa.y, width, height, screenx, screeny, light_lookup, ambient);
     return;
   }
 
@@ -1156,6 +1350,89 @@ void double_light_screen(image *sc, int32_t screenx, int32_t screeny, uint8_t *l
 
 
 
+
+int light_cache_selftest()
+{
+  int saved_interp = interpolate_draw;
+  int saved_cache = g_use_light_cache;
+  int16_t saved_ramp = ambient_ramp;
+  int16_t saved_shut = shutdown_lighting;
+  int saved_detail = light_detail;
+  light_source *saved_lights = first_light_source;
+  image *saved_screen = main_screen;
+
+  interpolate_draw = 1;
+  ambient_ramp = 0;
+  shutdown_lighting = 0;
+  light_detail = MEDIUM_DETAIL;
+  first_light_source = NULL;
+  g_sig_ok = 0;
+
+  image *im = new image(ivec2(32, 24));
+  uint8_t *lookup = (uint8_t *)malloc(64 * 256);
+  uint8_t direct[32 * 24];
+  uint8_t cached[32 * 24];
+  for (int lv = 0; lv < 64; lv++)
+    for (int p = 0; p < 256; p++)
+      lookup[(lv << 8) + p] = (uint8_t)lv;
+
+  add_light_source(0, 8, 6, 4, 40, 0, 0);
+  add_light_source(0, 24, 16, 4, 30, 0, 0);
+  main_screen = im;
+
+  g_use_light_cache = 0;
+  im->clear(0);
+  light_screen(im, 0, 0, lookup, 0);
+  for (int y = 0; y < 24; y++)
+    memcpy(direct + y * 32, im->scan_line(y), 32);
+
+  g_use_light_cache = 1;
+  g_sig_ok = 0;
+  im->clear(0);
+  light_screen(im, 0, 0, lookup, 0);
+  for (int y = 0; y < 24; y++)
+    memcpy(cached + y * 32, im->scan_line(y), 32);
+
+  int bad = memcmp(direct, cached, sizeof(direct)) != 0;
+
+  im->clear(0);
+  light_screen(im, 0, 0, lookup, 0);
+  for (int y = 0; y < 24; y++)
+    memcpy(cached + y * 32, im->scan_line(y), 32);
+  if (memcmp(direct, cached, sizeof(direct)) != 0)
+    bad = 1;
+
+  first_light_source->x += 5;
+  first_light_source->calc_range();
+  im->clear(0);
+  light_screen(im, 0, 0, lookup, 0);
+  for (int y = 0; y < 24; y++)
+    memcpy(cached + y * 32, im->scan_line(y), 32);
+  if (memcmp(direct, cached, sizeof(direct)) == 0)
+    bad = 1;
+
+  g_sig_ok = 0;
+  g_use_light_cache = 0;
+  im->clear(0);
+  light_screen(im, 0, 0, lookup, 0);
+  for (int y = 0; y < 24; y++)
+    memcpy(direct + y * 32, im->scan_line(y), 32);
+  if (memcmp(direct, cached, sizeof(direct)) != 0)
+    bad = 1;
+
+  delete_all_lights();
+  first_light_source = saved_lights;
+  main_screen = saved_screen;
+  interpolate_draw = saved_interp;
+  g_use_light_cache = saved_cache;
+  ambient_ramp = saved_ramp;
+  shutdown_lighting = saved_shut;
+  light_detail = saved_detail;
+  g_sig_ok = 0;
+  free(lookup);
+  delete im;
+  return bad;
+}
 
 void add_light_spec(spec_directory *sd, char const *level_name)
 {

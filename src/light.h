@@ -57,8 +57,12 @@ class light_patch
   }
   void add_light(int32_t X1, int32_t Y1, int32_t X2, int32_t Y2, light_source *who);
   light_patch *copy(light_patch *Next);
-  ~light_patch() { if (total) free(lights); }
+  ~light_patch();
+  void *operator new(size_t n);
+  void operator delete(void *p);
 } ;
+
+int light_cache_selftest();
 
 void delete_all_lights();
 void delete_light(light_source *which);

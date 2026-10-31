@@ -25,6 +25,8 @@
 
 #include "SDL.h"
 
+#include <cmath>
+
 #include "common.h"
 
 #include "image.h"
@@ -35,6 +37,7 @@
 #include "sprite.h"
 #include "game.h"
 #include "setup.h"
+#include "input.h"
 
 extern SDL_Window *window;
 extern SDL_Surface *surface;
@@ -52,6 +55,7 @@ void calculate_mouse_scaling(void);
 //AR on my brand new Xbox360 controller using the D-pad would trigger left stick movement events... best controller of all time they say...sigh
 //so I disable it if the user uses a D-pad, and enable it if the user uses the stick and passes the dead zone
 bool use_left_stick = false;
+int g_input_from_pad = 0;
 
 void release_controller_move_keys()
 {
@@ -75,10 +79,69 @@ void EventHandler::SysInit()
     //SDL_EventState(SDL_ACTIVEEVENT, SDL_IGNORE);
 }
 
+static bool pad_owns_play()
+{
+	return settings.pad_mode && settings.in_game && the_game &&
+		the_game->state == RUN_STATE && the_game->ar_state != AR_LOADSAVE;
+}
+
+// First controller press on the title/menu turns pad on (do not also click).
+static bool pad_wake_on_title()
+{
+	if(settings.pad_mode)
+		return false;
+	if(settings.in_game && the_game && the_game->state == RUN_STATE)
+		return false;
+	settings_set_pad_mode(1);
+	printf("Pad : on\n");
+	return true;
+}
+
 static bool freeze_mouse_for_stick()
 {
+	if(settings.pad_mode)
+		return true;
 	return settings.stick_aim_active() && settings.in_game &&
 		the_game && the_game->ar_state != AR_LOADSAVE;
+}
+
+// Left stick moves the virtual cursor in menus/save. Returns 1 if m_pos changed.
+static int update_pad_ui_cursor()
+{
+	if(!settings.pad_mode || pad_owns_play() || !wm)
+		return 0;
+
+	static Uint32 last = 0;
+	Uint32 now = SDL_GetTicks();
+	if(last == 0)
+		last = now;
+	float dt = (float)(now - last) / 1000.f;
+	last = now;
+	if(dt <= 0.f || dt > 0.1f)
+		dt = 0.016f;
+
+	float ax = settings.ctr_lst_x;
+	float ay = settings.ctr_lst_y;
+	float dz = (float)settings.ctr_lst_dzx;
+	if(dz < 8000.f)
+		dz = 8000.f;
+	if(ax < dz && ax > -dz)
+		ax = 0;
+	if(ay < dz && ay > -dz)
+		ay = 0;
+	if(ax == 0 && ay == 0)
+		return 0;
+
+	float nx = ax / 32767.f;
+	float ny = ay / 32767.f;
+	const float speed = 480.f;
+	ivec2 pos = wm->GetMousePos();
+	int mx = pos.x + (int)std::lround(nx * speed * dt);
+	int my = pos.y + (int)std::lround(ny * speed * dt);
+	if(mx == pos.x && my == pos.y)
+		return 0;
+	wm->SetMousePos(ivec2(mx, my));
+	return 1;
 }
 
 void EventHandler::SysWarpMouse(ivec2 pos)
@@ -96,6 +159,8 @@ void EventHandler::SysWarpMouse(ivec2 pos)
 //
 int EventHandler::IsPending()
 {
+    if(update_pad_ui_cursor())
+        m_pending = 1;
     if (!m_pending && SDL_PollEvent(NULL))
         m_pending = 1;
 
@@ -119,14 +184,18 @@ void EventHandler::SysEvent(Event &ev)
 
     // Gather next event
     SDL_Event sdlev;
+    g_input_from_pad = 0;
     if (!SDL_PollEvent(&sdlev))
-        return; // This should not happen
+    {
+        ev.type = EV_MOUSE_MOVE;
+        return;
+    }
 
 	// Sort the mouse out
 	int x, y;
 	uint8_t buttons = SDL_GetMouseState(&x, &y);
 	static int last_os_mx = 0, last_os_my = 0, have_os_mouse = 0;
-	if(settings.ctr_aim && settings.ctr_stick_aim == 1 && settings.ctr_aim_latched &&
+	if(!settings.pad_mode && settings.ctr_aim && settings.ctr_stick_aim == 1 && settings.ctr_aim_latched &&
 		settings.in_game && have_os_mouse && !settings.stick_deflected())
 	{
 		int dx = x - last_os_mx;
@@ -155,13 +224,13 @@ void EventHandler::SysEvent(Event &ev)
 	}
 	
 	// Left button
-	if((buttons & SDL_BUTTON(1)) && !mouse_buttons[1])
+	if(!pad_owns_play() && (buttons & SDL_BUTTON(1)) && !mouse_buttons[1])
 	{
 		ev.type = EV_MOUSE_BUTTON;
 		mouse_buttons[1] = !mouse_buttons[1];
         ev.mouse_button |= LEFT_BUTTON;
     }
-    else if(!(buttons & SDL_BUTTON(1)) && mouse_buttons[1])
+    else if(!pad_owns_play() && !(buttons & SDL_BUTTON(1)) && mouse_buttons[1])
     {
         ev.type = EV_MOUSE_BUTTON;
         mouse_buttons[1] = !mouse_buttons[1];
@@ -169,14 +238,14 @@ void EventHandler::SysEvent(Event &ev)
     }
 
     // Middle button
-    if((buttons & SDL_BUTTON(2)) && !mouse_buttons[2])
+    if(!pad_owns_play() && (buttons & SDL_BUTTON(2)) && !mouse_buttons[2])
     {
         ev.type = EV_MOUSE_BUTTON;
         mouse_buttons[2] = !mouse_buttons[2];
         ev.mouse_button |= LEFT_BUTTON;
         ev.mouse_button |= RIGHT_BUTTON;
     }
-    else if(!(buttons & SDL_BUTTON(2)) && mouse_buttons[2])
+    else if(!pad_owns_play() && !(buttons & SDL_BUTTON(2)) && mouse_buttons[2])
     {
         ev.type = EV_MOUSE_BUTTON;
         mouse_buttons[2] = !mouse_buttons[2];
@@ -185,13 +254,13 @@ void EventHandler::SysEvent(Event &ev)
     }
 
     // Right button
-    if((buttons & SDL_BUTTON(3)) && !mouse_buttons[3])
+    if(!pad_owns_play() && (buttons & SDL_BUTTON(3)) && !mouse_buttons[3])
     {
         ev.type = EV_MOUSE_BUTTON;
         mouse_buttons[3] = !mouse_buttons[3];
         ev.mouse_button |= RIGHT_BUTTON;
     }
-    else if(!(buttons & SDL_BUTTON(3)) && mouse_buttons[3])
+    else if(!pad_owns_play() && !(buttons & SDL_BUTTON(3)) && mouse_buttons[3])
     {
         ev.type = EV_MOUSE_BUTTON;
         mouse_buttons[3] = !mouse_buttons[3];
@@ -362,16 +431,13 @@ void EventHandler::SysEvent(Event &ev)
 			ev.key = JK_F7;
 			break;
 
-		case SDLK_F8://AR toggle controller aim (KBM vs stick)
+		case SDLK_F8:// toggle pad mode. Keyboard and mouse stay put when it is off.
 			if(ev.type==EV_KEYRELEASE)
 			{
-				settings.ctr_aim = !settings.ctr_aim;
-				settings.reset_stick_aim();
-				if(!settings.ctr_aim)
-					release_controller_move_keys();
-				printf("Controller aim : %s (%s)\n",
-					settings.ctr_aim ? "on" : "off",
-					settings.ctr_stick_aim == 0 ? "classic" : "modern");
+				settings_set_pad_mode(!settings.pad_mode);
+				printf("Pad : %s\n", settings.pad_mode ? "on" : "off");
+				if(the_game)
+					the_game->show_help(settings.pad_mode ? "Pad on" : "Pad off");
 			}
 			ev.key = JK_F8;
 			break;
@@ -410,6 +476,9 @@ void EventHandler::SysEvent(Event &ev)
 			//so I set it to a random key which shouldn't do anything in the game
 			if((int)sdlev.key.keysym.sym>JK_MAX_KEY) ev.key = JK_MAX_KEY;
 			else ev.key = (int)sdlev.key.keysym.sym;
+			// Shift+minus is underscore. The old full shift map broke WASD.
+			if((sdlev.key.keysym.mod & KMOD_SHIFT) && sdlev.key.keysym.sym == SDLK_MINUS)
+				ev.key = '_';
 
 			//AR this shift stuff messes up WSAD player controls when shift is pressed
 
@@ -489,6 +558,12 @@ void EventHandler::SysEvent(Event &ev)
 		break;
 	case SDL_CONTROLLERBUTTONDOWN:
 	case SDL_CONTROLLERBUTTONUP:
+		g_input_from_pad = 1;
+		if(pad_wake_on_title())
+		{
+			ev.type = EV_SPURIOUS;
+			return;
+		}
 		if(settings.ctr_f5==sdlev.cbutton.button)//AR quick save
 		{
 			if(sdlev.type==SDL_CONTROLLERBUTTONUP)
@@ -522,15 +597,51 @@ void EventHandler::SysEvent(Event &ev)
 		case SDL_CONTROLLER_BUTTON_GUIDE:	ev.key = JK_F1;		break;//help
 		case SDL_CONTROLLER_BUTTON_BACK:	ev.key = JK_ESC;	break;//go back
 			//
-		case SDL_CONTROLLER_BUTTON_A:	ev.key = get_key_binding(get_ctr_binding("ctr_a").c_str(),0);	break;
-		case SDL_CONTROLLER_BUTTON_B:	ev.key = get_key_binding(get_ctr_binding("ctr_b").c_str(),0);	break;
-		case SDL_CONTROLLER_BUTTON_X:	ev.key = get_key_binding(get_ctr_binding("ctr_x").c_str(),0);	break;
-		case SDL_CONTROLLER_BUTTON_Y:	ev.key = get_key_binding(get_ctr_binding("ctr_y").c_str(),0);	break;
+		case SDL_CONTROLLER_BUTTON_A:
+			if(settings.pad_mode && !pad_owns_play())
+			{
+				ev.type = EV_MOUSE_BUTTON;
+				if(sdlev.type == SDL_CONTROLLERBUTTONDOWN)
+					ev.mouse_button |= LEFT_BUTTON;
+				else
+					ev.mouse_button &= (0xff - LEFT_BUTTON);
+				m_button = ev.mouse_button;
+				return;
+			}
+			ev.key = settings.pad_mode ? get_key_binding("up2", 0)
+				: get_key_binding(get_ctr_binding("ctr_a").c_str(),0);
+			break;
+		case SDL_CONTROLLER_BUTTON_B:
+			if(settings.pad_mode && !pad_owns_play())
+			{
+				ev.key = JK_ESC;
+				break;
+			}
+			ev.key = settings.pad_mode ? get_key_binding("b1", 0)
+				: get_key_binding(get_ctr_binding("ctr_b").c_str(),0);
+			break;
+		case SDL_CONTROLLER_BUTTON_X:
+			if(settings.pad_mode) { ev.type = EV_SPURIOUS; return; }
+			ev.key = get_key_binding(get_ctr_binding("ctr_x").c_str(),0);
+			break;
+		case SDL_CONTROLLER_BUTTON_Y:
+			if(settings.pad_mode) { ev.type = EV_SPURIOUS; return; }
+			ev.key = get_key_binding(get_ctr_binding("ctr_y").c_str(),0);
+			break;
 			//
-		case SDL_CONTROLLER_BUTTON_LEFTSTICK:		ev.key = get_key_binding(get_ctr_binding("ctr_lst").c_str(),0);	break;
-		case SDL_CONTROLLER_BUTTON_RIGHTSTICK:		ev.key = get_key_binding(get_ctr_binding("ctr_rst").c_str(),0);	break;
-		case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:	ev.key = get_key_binding(get_ctr_binding("ctr_lsr").c_str(),0);	break;
-		case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:	ev.key = get_key_binding(get_ctr_binding("ctr_rsh").c_str(),0);	break;
+		case SDL_CONTROLLER_BUTTON_LEFTSTICK:
+		case SDL_CONTROLLER_BUTTON_RIGHTSTICK:
+			if(settings.pad_mode) { ev.type = EV_SPURIOUS; return; }
+			ev.key = sdlev.cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSTICK
+				? get_key_binding(get_ctr_binding("ctr_lst").c_str(),0)
+				: get_key_binding(get_ctr_binding("ctr_rst").c_str(),0);
+			break;
+		case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
+			ev.key = settings.pad_mode ? get_key_binding("b3", 0) : get_key_binding(get_ctr_binding("ctr_lsr").c_str(),0);
+			break;
+		case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
+			ev.key = settings.pad_mode ? get_key_binding("b4", 0) : get_key_binding(get_ctr_binding("ctr_rsh").c_str(),0);
+			break;
 			//
 		case SDL_CONTROLLER_BUTTON_DPAD_UP:		use_left_stick = false;ev.key = get_key_binding("up",0);	break;
 		case SDL_CONTROLLER_BUTTON_DPAD_DOWN:	use_left_stick = false;ev.key = get_key_binding("down",0);	break;
@@ -543,12 +654,20 @@ void EventHandler::SysEvent(Event &ev)
 			ev.key = -1;
 		}
 		ev.type = sdlev.type == SDL_CONTROLLERBUTTONDOWN ? EV_KEY : EV_KEYRELEASE;
+		if(!settings.pad_mode &&
+			sdlev.cbutton.button != SDL_CONTROLLER_BUTTON_START &&
+			sdlev.cbutton.button != SDL_CONTROLLER_BUTTON_GUIDE &&
+			sdlev.cbutton.button != SDL_CONTROLLER_BUTTON_BACK)
+			ev.type = EV_SPURIOUS;
 		break;
 
 	case SDL_CONTROLLERAXISMOTION:
+		g_input_from_pad = 1;
 		switch (sdlev.caxis.axis)
 		{
 		case SDL_CONTROLLER_AXIS_LEFTX:
+			settings.ctr_lst_x = sdlev.caxis.value;
+			if(!settings.pad_mode || !pad_owns_play()) { ev.type = EV_SPURIOUS; break; }
 			if(abs(sdlev.caxis.value) >= settings.ctr_lst_dzx) use_left_stick = true;//enable the left stick			
 
 			if(use_left_stick)
@@ -582,6 +701,8 @@ void EventHandler::SysEvent(Event &ev)
 			break;
 
 		case SDL_CONTROLLER_AXIS_LEFTY:
+			settings.ctr_lst_y = sdlev.caxis.value;
+			if(!settings.pad_mode || !pad_owns_play()) { ev.type = EV_SPURIOUS; break; }
 			if(abs(sdlev.caxis.value) >= settings.ctr_lst_dzy) use_left_stick = true;//enable the left stick			
 
 			if(use_left_stick)
@@ -596,17 +717,14 @@ void EventHandler::SysEvent(Event &ev)
 				else
 				{
 					ev.key = get_key_binding("down", 0);
-					//AR we need to turn off both left key states when activating right movement, so it doesn't move to the left
+					// Stick down is use/lifts. Do not clear Cross jump (up2).
 					the_game->set_key_down(get_key_binding("up", 0),0);
-					the_game->set_key_down(get_key_binding("up2", 0),0);
 				}
 
 				if(abs(sdlev.caxis.value) < settings.ctr_lst_dzy)
 				{
 					ev.type = EV_KEYRELEASE;
-					//AR stop everything
 					the_game->set_key_down(get_key_binding("up", 0),0);
-					the_game->set_key_down(get_key_binding("up2", 0),0);
 					the_game->set_key_down(get_key_binding("down", 0),0);
 					the_game->set_key_down(get_key_binding("down2", 0),0);
 				}
@@ -616,7 +734,7 @@ void EventHandler::SysEvent(Event &ev)
 
 			// Right stick aims only when controller aim is on (F8 / aim off keeps walk+triggers).
 		case SDL_CONTROLLER_AXIS_RIGHTX:
-			if(!settings.ctr_aim)
+			if(!settings.pad_mode)
 			{
 				ev.type = EV_SPURIOUS;
 				break;
@@ -626,7 +744,7 @@ void EventHandler::SysEvent(Event &ev)
 			break;
 
 		case SDL_CONTROLLER_AXIS_RIGHTY:
-			if(!settings.ctr_aim)
+			if(!settings.pad_mode)
 			{
 				ev.type = EV_SPURIOUS;
 				break;
@@ -636,15 +754,15 @@ void EventHandler::SysEvent(Event &ev)
 			break;
 
 		case SDL_CONTROLLER_AXIS_TRIGGERLEFT:
-			//AR convert to key events
-			ev.key = get_key_binding(get_ctr_binding("ctr_ltg").c_str(),0);
+			if(!settings.pad_mode) { ev.type = EV_SPURIOUS; break; }
+			ev.key = get_key_binding("b1", 0);
 			if(sdlev.caxis.value > m_dead_zone) ev.type = EV_KEY;
 			else ev.type = EV_KEYRELEASE;
 			break;
 
 		case SDL_CONTROLLER_AXIS_TRIGGERRIGHT:
-			//AR convert to key events
-			ev.key = get_key_binding(get_ctr_binding("ctr_rtg").c_str(),0);
+			if(!settings.pad_mode) { ev.type = EV_SPURIOUS; break; }
+			ev.key = get_key_binding("b2", 0);
 			if(sdlev.caxis.value > m_dead_zone) ev.type = EV_KEY;
 			else ev.type = EV_KEYRELEASE;
 			break;

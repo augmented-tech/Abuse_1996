@@ -514,7 +514,7 @@ void menu_handler(Event &ev, InputManager *inm)
       if (title_screen>=0)
       {
         image *im = cache.img(title_screen);
-        main_screen->PutImage(im, main_screen->Size() / 2 - im->Size() / 2);
+        main_screen->PutImage(im, visible_center(im->Size()));
       }
       inm->redraw();
       fade_in(NULL,8);

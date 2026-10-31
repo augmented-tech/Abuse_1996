@@ -29,6 +29,8 @@ public:
 	float	render_interp;	// 0..1 blend between last and current physics tick
 	int		classic_fov;	// 1 = cropped camera, integer-scaled to the window
 	int		fov_w;			// classic present width: 320 (original), 340, or 360
+	int		enhance_lift_light;	// 1 = lift lamp drawn after lighting
+	int		enhance_save_light;	// 1 = save screen drawn after lighting while the player overlaps it
 
 	//sound
 	bool	mono;
@@ -70,6 +72,7 @@ public:
 
 	//controller settings
 	bool	ctr_aim;								//enable
+	int		pad_mode;								// 1 = pad drives play, keyboard and mouse do not
 	int		ctr_stick_aim;							// 0 = 2016 15 Hz ring (classic), 1 = 60 Hz angle latch (modern)
 	int		ctr_aim_correctx;						//for some reason game adds black bars on widescreen resolutions and it messes up crosshair position
 	int		ctr_cd;									//crosshair distance from player
@@ -77,6 +80,7 @@ public:
 	int		ctr_rst_dz, ctr_lst_dzx, ctr_lst_dzy;	//dead zones
 	//
 	float	ctr_aim_x, ctr_aim_y;					//state of right stick
+	float	ctr_lst_x, ctr_lst_y;					//left stick, for walk and menu cursor
 	float	ctr_mouse_x, ctr_mouse_y;				//use left stick to move mouse...gave up
 	bool	ctr_aim_latched;						// modern stick aim: keep last angle after release
 	float	ctr_aim_angle;							// radians, DualShock-style right-stick heading
@@ -131,5 +135,6 @@ public:
 };
 
 void release_controller_move_keys();
+void settings_set_pad_mode(int on);
 
 #endif // _SETUP_H_

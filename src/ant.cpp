@@ -460,7 +460,7 @@ void show_stats()
 		if(rand()%2) im = cache.img(cache.reg("art/frame.spe","end_level_screen",SPEC_IMAGE,1));
 		else im = cache.img(cache.reg("art/fore/endgame.spe","tbc",SPEC_IMAGE,1));
 
-		main_screen->PutImage(im,ivec2(xres/2-im->Size().x/2,yres/2-im->Size().y/2));
+		main_screen->PutImage(im, visible_center(im->Size()));
 
 		fade_in(NULL,16);
 
@@ -481,8 +481,10 @@ void show_stats()
 		int w = wm->font()->Size().x*strlen(msg);
 		int h = wm->font()->Size().y;
 
-		int x = xres/2 - w/2;
-		int y = 0.9*yres - h/2;
+		int pw, ph;
+		visible_canvas_size(pw, ph);
+		int x = pw/2 - w/2;
+		int y = (int)(0.9f * ph) - h/2;
 
 		main_screen->Bar(ivec2(x - 10, y - 10), ivec2(x + w + 10, y + h + 10), wm->bright_color());
 		main_screen->Bar(ivec2(x - 9, y - 9), ivec2(x + w + 9, y + h + 9), wm->medium_color());

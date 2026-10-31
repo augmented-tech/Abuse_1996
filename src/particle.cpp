@@ -15,6 +15,7 @@
 #include "common.h"
 
 #include "particle.h"
+#include "raster/frame.h"
 #include "view.h"
 #include "lisp.h"
 #include "cache.h"
@@ -167,6 +168,15 @@ void draw_panims(view *v)
   for (part_animation *p=first_anim; p; p=p->next)
   {
     cache.part(p->seq->frames[p->frame])->draw(main_screen,
+        p->x - current_vxadd, p->y - current_vyadd, p->dir);
+  }
+}
+
+void record_panims(RasterFrame *frame)
+{
+  for (part_animation *p=first_anim; p; p=p->next)
+  {
+    frame->particle(cache.part(p->seq->frames[p->frame]),
         p->x - current_vxadd, p->y - current_vyadd, p->dir);
   }
 }

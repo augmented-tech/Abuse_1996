@@ -20,6 +20,7 @@
 #include "status.h"
 #include "timing.h"
 #include "guistat.h"
+#include "video.h"
 
 class gui_status_node
 {
@@ -98,7 +99,9 @@ void gui_status_manager::update(int percentage)
       time_marker now;
       if (now.diff_time(&first->last_time)>1)
       {
-    long wx=xres/2,wy=10,len1=strlen(first->name)*wm->font()->Size().x+10,len2=0,len3,
+    int cw, ch;
+    visible_canvas_size(cw, ch);
+    long wx=cw/2,wy=10,len1=strlen(first->name)*wm->font()->Size().x+10,len2=0,len3,
       h1=wm->font()->Size().y+5,h2=first->show ? first->show->height() : 0;
 
     if (first->show) len2=first->show->width()/2;

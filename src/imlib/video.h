@@ -40,6 +40,8 @@ void video_set_linear_filter(bool on);
 void video_set_grab(bool on);
 void present_src_size(int &pw, int &ph);
 void classic_present_size(int &pw, int &ph);
+void visible_canvas_size(int &w, int &h);
+ivec2 visible_center(ivec2 size);
 
 void update_dirty(image *im, int xoff=0, int yoff=0);
 void put_part_image(image *im, int x, int y, int x1, int y1, int x2, int y2);

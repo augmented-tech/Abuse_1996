@@ -51,6 +51,7 @@ void console::show()
 {
   if (!con_win)
   {
+    g_fov_present = 0;
     con_win=wm->CreateWindow(ivec2(lastx, lasty),
                              ivec2(screen_w(), screen_h()), NULL, name);
     redraw();

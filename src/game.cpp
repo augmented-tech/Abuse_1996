@@ -762,17 +762,171 @@ void raster_light_legacy(view *v, int32_t xoff, int32_t yoff, image *old_screen,
 
 static int g_raster_people_interp;
 static int g_raster_people_layer;
+static int32_t *g_actor_xy = NULL;
+static int g_actor_n = 0;
 
-static void raster_people(view *v)
+static void raster_actors_begin(view *v)
 {
-    if(g_raster_people_layer)
+    current_view = v;
+    if(!g_raster_people_layer || !g_raster_people_interp)
+        return;
+
+    int n = 0;
+    for(game_object *o = current_level->first_active_object(); o; o = o->next_active)
+        n++;
+    g_actor_n = n;
+    if(!n)
+        return;
+
+    g_actor_xy = (int32_t *)malloc(sizeof(int32_t) * n * 2);
+    int i = 0;
+    for(game_object *o = current_level->first_active_object(); o; o = o->next_active, i++)
     {
-        if(g_raster_people_interp)
-            current_level->interpolate_draw_objects(v);
-        else
-            current_level->draw_objects(v);
+        g_actor_xy[i * 2] = o->x;
+        g_actor_xy[i * 2 + 1] = o->y;
+        if(abs(o->x - o->last_x) < 64 && abs(o->y - o->last_y) < 64)
+        {
+            o->x = ar_lerp_i(o->last_x, o->x, settings.render_interp);
+            o->y = ar_lerp_i(o->last_y, o->y, settings.render_interp);
+        }
     }
-    draw_panims(v);
+}
+
+static void raster_actors_end(view *)
+{
+    if(g_raster_people_layer && !g_raster_people_interp)
+        LSpace::Tmp.Clear();
+}
+
+static void raster_actors_restore(view *)
+{
+    if(g_raster_people_layer && g_raster_people_interp && g_actor_xy)
+    {
+        int i = 0;
+        for(game_object *o = current_level->first_active_object(); o; o = o->next_active, i++)
+        {
+            if(i >= g_actor_n)
+                break;
+            o->x = g_actor_xy[i * 2];
+            o->y = g_actor_xy[i * 2 + 1];
+        }
+        free(g_actor_xy);
+        g_actor_xy = NULL;
+    }
+}
+
+static int lift_name(game_object *o)
+{
+    if(!o || o->type() < 0 || o->type() >= total_objects)
+        return 0;
+    char const *n = object_names[o->type()];
+    return n && strncmp(n, "SMART_PLAT", 10) == 0;
+}
+
+static int lamp_yellow(int c)
+{
+    if(c <= 0 || !pal)
+        return 0;
+    unsigned char r, g, b;
+    pal->get(c, r, g, b);
+    return r > 160 && g > 120 && b < 90 && r > b + 40 && g > b + 20;
+}
+
+void raster_lift_lamp(game_object *o)
+{
+    if(!settings.enhance_lift_light || !lift_name(o))
+        return;
+    TransImage *cpict = o->picture();
+    if(!cpict)
+        return;
+    image *im = cpict->ToImage();
+    int sx = (o->direction < 0 ? o->x - (cpict->Size().x - o->x_center() - 1) : o->x - o->x_center()) - current_vxadd;
+    int sy = o->y - cpict->Size().y + 1 - current_vyadd;
+    ivec2 caa, cbb;
+    main_screen->GetClip(caa, cbb);
+    main_screen->Lock();
+    for(int y = 0; y < im->Size().y; y++)
+    {
+        int dy = sy + y;
+        if(dy < caa.y || dy >= cbb.y)
+            continue;
+        uint8_t *row = im->scan_line(y);
+        uint8_t *dst = main_screen->scan_line(dy);
+        for(int x = 0; x < im->Size().x; x++)
+        {
+            int dx = sx + x;
+            if(dx < caa.x || dx >= cbb.x)
+                continue;
+            if(lamp_yellow(row[x]))
+                dst[dx] = row[x];
+        }
+    }
+    main_screen->Unlock();
+    delete im;
+}
+
+static int save_name(game_object *o)
+{
+    if(!o || o->type() < 0 || o->type() >= total_objects)
+        return 0;
+    char const *n = object_names[o->type()];
+    return n && strcmp(n, "RESTART_POSITION") == 0;
+}
+
+static int boxes_touch(game_object *a, game_object *b)
+{
+    int32_t ax1, ay1, ax2, ay2, bx1, by1, bx2, by2;
+    a->picture_space(ax1, ay1, ax2, ay2);
+    b->picture_space(bx1, by1, bx2, by2);
+    if(ax1 > bx2 || ax2 < bx1 || ay1 > by2 || ay2 < by1)
+        return 0;
+    return 1;
+}
+
+static int screen_pixel(int c)
+{
+    if(c <= 0 || !pal)
+        return 0;
+    unsigned char r, g, b;
+    pal->get(c, r, g, b);
+    int green = g > 90 && g > r + 10 && g + 30 > b;
+    int cyan = b > 90 && g > 70 && r < 100;
+    return green || cyan;
+}
+
+void raster_save_lamp(game_object *o, view *v)
+{
+    if(!settings.enhance_save_light || !save_name(o) || !v || !v->m_focus)
+        return;
+    if(!boxes_touch(o, v->m_focus))
+        return;
+    TransImage *cpict = o->picture();
+    if(!cpict)
+        return;
+    image *im = cpict->ToImage();
+    int sx = (o->direction < 0 ? o->x - (cpict->Size().x - o->x_center() - 1) : o->x - o->x_center()) - current_vxadd;
+    int sy = o->y - cpict->Size().y + 1 - current_vyadd;
+    ivec2 caa, cbb;
+    main_screen->GetClip(caa, cbb);
+    main_screen->Lock();
+    for(int y = 0; y < im->Size().y; y++)
+    {
+        int dy = sy + y;
+        if(dy < caa.y || dy >= cbb.y)
+            continue;
+        uint8_t *row = im->scan_line(y);
+        uint8_t *dst = main_screen->scan_line(dy);
+        for(int x = 0; x < im->Size().x; x++)
+        {
+            int dx = sx + x;
+            if(dx < caa.x || dx >= cbb.x)
+                continue;
+            if(screen_pixel(row[x]))
+                dst[dx] = row[x];
+        }
+    }
+    main_screen->Unlock();
+    delete im;
 }
 
 static void raster_dev_draw(view *v)
@@ -849,7 +1003,7 @@ void Game::draw_map(view *v, int interpolate)
       if(state == SCENE_STATE)
         main_screen->SetClip(v->m_aa, v->m_bb + ivec2(1));
       image *tit = cache.img(title_screen);
-      main_screen->PutImage(tit, main_screen->Size() / 2 - tit->Size() / 2);
+      main_screen->PutImage(tit, visible_center(tit->Size()));
       if(state == SCENE_STATE)
         main_screen->SetClip(caa, cbb);
       wm->flush_screen();
@@ -1112,7 +1266,14 @@ void Game::draw_map(view *v, int interpolate)
   {
     g_raster_people_interp = interpolate;
     g_raster_people_layer = (dev & DRAW_PEOPLE_LAYER) ? 1 : 0;
-    frame.call(raster_people, v);
+    frame.call(raster_actors_begin, v);
+    if(g_raster_people_layer)
+    {
+      for(game_object *o = current_level->first_active_object(); o; o = o->next_active)
+        frame.object(o);
+    }
+    frame.call(raster_actors_end, v);
+    record_panims(&frame);
   }
   else if(dev & DRAW_PEOPLE_LAYER)
   {
@@ -1204,6 +1365,23 @@ void Game::draw_map(view *v, int interpolate)
         frame.call(raster_dev_draw, v);
       if(dev & DRAW_LIGHTS)
         frame.light(v, xoff, yoff, old_screen, old_aa, old_bb, interpolate);
+      if(settings.enhance_lift_light && g_raster_people_layer)
+      {
+        for(game_object *o = current_level->first_active_object(); o; o = o->next_active)
+        {
+          if(lift_name(o))
+            frame.lift_lamp(o);
+        }
+      }
+      if(settings.enhance_save_light && g_raster_people_layer)
+      {
+        for(game_object *o = current_level->first_active_object(); o; o = o->next_active)
+        {
+          if(save_name(o))
+            frame.save_lamp(o, v);
+        }
+      }
+      frame.call(raster_actors_restore, v);
       raster_execute_legacy(frame);
       if(!(dev & DRAW_LIGHTS))
         main_screen->dirt_on();
@@ -1296,8 +1474,7 @@ template<int N> static void Fade(image *im, int steps)
     if (im)
     {
         main_screen->clear();
-        main_screen->PutImage(im, ivec2(xres + 1, yres + 1) / 2
-                                   - im->Size() / 2);
+        main_screen->PutImage(im, visible_center(im->Size()));
     }
 
     for (Timer total; total.PollMs() < duration * steps; )
@@ -1656,7 +1833,7 @@ Game::Game(int argc, char **argv)
     if(title_screen >= 0)
     {
       image *im = cache.img(title_screen);
-      main_screen->PutImage(im, main_screen->Size() / 2 - im->Size() / 2);
+      main_screen->PutImage(im, visible_center(im->Size()));
     }
     set_state(MENU_STATE);   // then go to menu state so windows will turn off
   }
@@ -1802,6 +1979,20 @@ int Game::calc_speed()
 
 extern int start_edit;
 
+extern int g_input_from_pad;
+
+static int pad_blocks_keyboard(int key)
+{
+	if(!settings.pad_mode || g_input_from_pad)
+		return 0;
+	if(!the_game || !settings.in_game || the_game->state != RUN_STATE || the_game->ar_state == AR_LOADSAVE)
+		return 0;
+	return key == settings.left || key == settings.right || key == settings.up || key == settings.down
+		|| key == settings.left_2 || key == settings.right_2 || key == settings.up_2 || key == settings.down_2
+		|| key == settings.b1 || key == settings.b2 || key == settings.b2_2
+		|| key == settings.b3 || key == settings.b4;
+}
+
 void Game::get_input()
 {
     Event ev;
@@ -1840,6 +2031,10 @@ void Game::get_input()
                     }
                     ev.type = EV_SPURIOUS;
                 }
+                else if(pad_blocks_keyboard(ev.key))
+                {
+                    ev.type = EV_SPURIOUS;
+                }
                 else
                 {
                     set_key_down(ev.key, 1);
@@ -1859,6 +2054,9 @@ void Game::get_input()
             }
             else if(ev.type == EV_KEYRELEASE)
             {
+                if(pad_blocks_keyboard(ev.key))
+                    ev.type = EV_SPURIOUS;
+                else
                 set_key_down(ev.key, 0);
                 if(playing_state(state) && !(chat && chat->showing()))
                 {
@@ -2147,7 +2345,7 @@ void net_receive()
 void Game::update_stick_aim()
 {
 	// Modern DualSense-style aim: 60 Hz angle + fixed ring. Controller only.
-	if(!settings.ctr_aim || settings.ctr_stick_aim != 1)
+	if(!settings.pad_mode || !settings.ctr_aim || settings.ctr_stick_aim != 1)
 		return;
 	if(!settings.in_game || !current_level || !wm)
 		return;
@@ -2225,7 +2423,7 @@ void Game::step()
 				else f->god = 0;							
 				
 				// 2016 Xbox 360 ring at 15 Hz. Mouse is free at rest (stick_aiming), unlike original always-on warp.
-				if(settings.ctr_stick_aim == 0 && settings.stick_aiming())
+				if(settings.pad_mode && settings.ctr_stick_aim == 0 && settings.stick_aiming())
 				{
 					//convert to percentage above "dead zone", don't move if value below "dead zone", range [-32767,32767]
 					float fx = 0, fy = 0;
